@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Globe -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF7FB2FF"
+        android:strokeWidth="3.5"
+        android:pathData="M50,28a20,20 0,1 1,0 40a20,20 0,1 1,0 -40z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF7FB2FF"
+        android:strokeWidth="2.5"
+        android:pathData="M50,28c-7,6 -9,14 -9,20s2,14 9,20M50,28c7,6 9,14 9,20s-2,14 -9,20M30,48h40M33,38h34M33,58h34" />
+    <!-- Magnifier -->
+    <path
+        android:fillColor="#FF1B2433"
+        android:strokeColor="#FFFFC857"
+        android:strokeWidth="4"
+        android:pathData="M64,56a10,10 0,1 1,0 20a10,10 0,1 1,0 -20z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFC857"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M71.5,73.5L80,82" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFC857"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M60.5,63.5l-2.5,2.5l2.5,2.5M67.5,63.5l2.5,2.5l-2.5,2.5" />
+</vector>

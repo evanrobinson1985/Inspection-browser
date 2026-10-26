@@ -1,0 +1,3 @@
+Eruda 3.4.3 (eruda.js) - MIT License - Copyright (c) liriliri - https://github.com/liriliri/eruda
+Plugins (eruda-code, eruda-timing, eruda-monitor, eruda-features, eruda-touches, eruda-orientation,
+eruda-benchmark, eruda-geolocation) - MIT License - see the matching .LICENSE files.
