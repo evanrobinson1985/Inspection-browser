@@ -55,7 +55,7 @@ fun CookiesScreen(browser: BrowserController, onBack: () -> Unit) {
     var version by remember { mutableIntStateOf(0) }
     val cookies = remember(version) { Requests.parseCookies(browser.cookies()) }
     var adding by remember { mutableStateOf(false) }
-    val refresh = { version++ }
+    val refresh: () -> Unit = { version++ }
 
     Column(Modifier.fillMaxSize()) {
         PanelHeader("Cookies", onBack, subtitle = "${cookies.size} for ${Requests.host(browser.url)}") {
