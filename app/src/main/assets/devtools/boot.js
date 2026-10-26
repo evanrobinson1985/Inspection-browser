@@ -37,12 +37,28 @@
   function start() {
     try { load.call(window); } catch (e) { window.__ibError = String(e && e.stack || e); }
   }
-  // At document start there may be no <html> element yet; Eruda needs one to attach to.
-  if (document.documentElement) start();
+  // At document start there may be no <html> or <head> yet, and Eruda puts its styles in the
+  // head. The parser makes the head before any of the page's own scripts can run, so waiting
+  // for it still catches everything.
+  var started = false;
+  function startOnce() {
+    if (started) return;
+    started = true;
+    observer.disconnect();
+    start();
+  }
+  var observer = new MutationObserver(function () { if (document.head) startOnce(); });
+  if (document.head) startOnce();
   else {
-    var observer = new MutationObserver(function () {
-      if (document.documentElement) { observer.disconnect(); start(); }
+    observer.observe(document, { childList: true, subtree: true });
+    // Documents that never get a head (plain text, images, SVG): give HTML ones a head of their own.
+    document.addEventListener('DOMContentLoaded', function () {
+      if (started) return;
+      var root = document.documentElement;
+      if (root && !document.head && root.namespaceURI === 'http://www.w3.org/1999/xhtml') {
+        root.insertBefore(document.createElement('head'), root.firstChild);
+      }
+      if (document.head) startOnce(); else observer.disconnect();
     });
-    observer.observe(document, { childList: true });
   }
 })(/*@CONFIG@*/);
