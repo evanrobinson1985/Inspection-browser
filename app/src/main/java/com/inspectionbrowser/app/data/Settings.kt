@@ -41,6 +41,8 @@ class Settings(context: Context) {
     val disableCache = bool("disableCache", false)
     val thirdPartyCookies = bool("thirdPartyCookies", true)
     val darkPages = bool("darkPages", false)
+    /** Turn down every site's request for location without asking. */
+    val blockLocation = bool("blockLocation", false)
     val textZoom = int("textZoom", 100)
 
     /** Eruda loaded into every page before its scripts. */

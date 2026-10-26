@@ -159,7 +159,7 @@ fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () ->
             }
         }
 
-        browser.ask?.let { AskDialog(it, browser::answer) }
+        browser.ask?.let { AskDialog(it) { allow, remember -> browser.answer(allow, remember) } }
     }
 }
 
@@ -342,7 +342,7 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
 }
 
 @Composable
-private fun AskDialog(ask: PageAsk, answer: (Boolean) -> Unit) {
+private fun AskDialog(ask: PageAsk, answer: (allow: Boolean, remember: Boolean) -> Unit) {
     val (title, body, yes) = when (ask) {
         is PageAsk.Ssl -> Triple(
             "Certificate problem",
@@ -356,14 +356,15 @@ private fun AskDialog(ask: PageAsk, answer: (Boolean) -> Unit) {
                 listOfNotNull("camera".takeIf { ask.camera }, "microphone".takeIf { ask.microphone }).joinToString(" and ") + ".",
             "Allow",
         )
-        is PageAsk.Location -> Triple("Allow location?", "${ask.origin} wants to know your location.", "Allow")
+        is PageAsk.Location -> Triple("Allow location?", "${ask.origin} wants to know your location.\n\nYour answer is remembered for this site (Settings ▸ Clear data ▸ Location answers to reset).", "Allow")
     }
     AlertDialog(
-        onDismissRequest = { answer(false) },
+        // Tapping outside is "not now": nothing is remembered.
+        onDismissRequest = { answer(false, false) },
         title = { Text(title) },
         text = { Text(body) },
-        confirmButton = { TextButton(onClick = { answer(true) }) { Text(yes) } },
-        dismissButton = { TextButton(onClick = { answer(false) }) { Text(if (ask is PageAsk.Ssl) "Go back" else "Block") } },
+        confirmButton = { TextButton(onClick = { answer(true, true) }) { Text(yes) } },
+        dismissButton = { TextButton(onClick = { answer(false, true) }) { Text(if (ask is PageAsk.Ssl) "Go back" else "Block") } },
     )
 }
 

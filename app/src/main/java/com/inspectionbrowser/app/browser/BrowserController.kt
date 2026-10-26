@@ -321,6 +321,7 @@ class BrowserController(
     fun clearCache() { webView.clearCache(true); toast("Cache cleared") }
     fun clearCookies() { CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush() }; toast("Cookies cleared") }
     fun clearStorage() { WebStorage.getInstance().deleteAllData(); toast("Site storage cleared") }
+    fun clearSitePermissions() { GeolocationPermissions.getInstance().clearAll(); toast("Sites will ask for location again") }
 
     fun exitFullscreen() {
         customViewCallback?.onCustomViewHidden()
@@ -330,7 +331,8 @@ class BrowserController(
 
     // --- Page asks: certificate errors, camera/microphone, location ---
 
-    fun answer(allow: Boolean) {
+    /** The user's answer; with [remember], a site's location answer is kept so it isn't asked again. */
+    fun answer(allow: Boolean, remember: Boolean = true) {
         val a = ask ?: return
         ask = null
         when (a) {
@@ -344,9 +346,9 @@ class BrowserController(
                 if (needed.isEmpty()) grantMedia(a) else { pendingPermission = a; askPermissions(needed.toTypedArray()) }
             }
             is PageAsk.Location -> {
-                if (!allow) { a.callback.invoke(a.origin, false, false); return }
+                if (!allow) { a.callback.invoke(a.origin, false, remember); return }
                 val needed = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                if (needed.any(::granted)) a.callback.invoke(a.origin, true, false)
+                if (needed.any(::granted)) a.callback.invoke(a.origin, true, true)
                 else { pendingPermission = a; askPermissions(needed.toTypedArray()) }
             }
         }
@@ -358,7 +360,8 @@ class BrowserController(
         pendingPermission = null
         when (p) {
             is PageAsk.Media -> if (result.values.any { it } || result.isEmpty()) grantMedia(p) else p.request.deny()
-            is PageAsk.Location -> p.callback.invoke(p.origin, result.values.any { it }, false)
+            // Only kept when Android allowed it too, so a refusal there can be retried.
+            is PageAsk.Location -> result.values.any { it }.let { ok -> p.callback.invoke(p.origin, ok, ok) }
             is PageAsk.Ssl -> Unit
         }
     }
@@ -576,7 +579,8 @@ class BrowserController(
         }
 
         override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
-            ask = PageAsk.Location(origin, callback)
+            if (settings.blockLocation.value) callback.invoke(origin, false, false)
+            else ask = PageAsk.Location(origin, callback)
         }
 
         override fun onGeolocationPermissionsHidePrompt() {

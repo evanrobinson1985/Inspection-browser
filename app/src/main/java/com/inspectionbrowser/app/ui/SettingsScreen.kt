@@ -67,6 +67,7 @@ fun SettingsScreen(browser: BrowserController, updater: AppUpdater, onBack: () -
             TextSetting(s.homePage, "Home page")
             Toggle(s.javaScript, "JavaScript", "DevTools need it on")
             Toggle(s.thirdPartyCookies, "Third-party cookies", null)
+            Toggle(s.blockLocation, "Block location requests", "Sites can't ask for your location; otherwise each site asks once and your answer is remembered")
             Toggle(s.darkPages, "Darken pages in dark mode", "Pages without a dark theme of their own are darkened when the phone is in dark mode")
             val zoom by s.textZoom.flow.collectAsState()
             Column(Modifier.padding(horizontal = 16.dp)) {
@@ -83,6 +84,8 @@ fun SettingsScreen(browser: BrowserController, updater: AppUpdater, onBack: () -
             }
             Row(Modifier.padding(horizontal = 16.dp)) {
                 OutlinedButton(onClick = { browser.library.clearHistory() }) { Text("History") }
+                androidx.compose.foundation.layout.Spacer(Modifier.padding(4.dp))
+                OutlinedButton(onClick = browser::clearSitePermissions) { Text("Location answers") }
             }
 
             SectionTitle("Updates")
