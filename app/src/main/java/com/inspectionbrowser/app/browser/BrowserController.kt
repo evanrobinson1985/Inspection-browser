@@ -712,12 +712,21 @@ class BrowserController(
                     val script = devtoolsScript ?: return@evaluateJavascript
                     wv.evaluateJavascript(script) {
                         wv.evaluateJavascript(DevtoolsScript.show(tool ?: "")) { again ->
-                            if (again?.trim('"') != "open") toast(if (settings.javaScript.value) "DevTools can't run on this page" else "DevTools need JavaScript (Settings)")
+                            if (again?.trim('"') == "open") addPlugins(wv)
+                            else toast(if (settings.javaScript.value) "DevTools can't run on this page" else "DevTools need JavaScript (Settings)")
                         }
                     }
                 }
+                r == "open" -> addPlugins(wv)
                 r.startsWith("error:") -> toast("DevTools failed on this page: " + r.removePrefix("error:").substringBefore("\\n").take(120))
             }
+        }
+    }
+
+    /** The extra DevTools tabs (Code, Timing, Monitor …), added the first time DevTools open on a page. */
+    private fun addPlugins(wv: WebView) {
+        wv.evaluateJavascript(DevtoolsScript.NEEDS_PLUGINS) { needs ->
+            if (needs == "true") wv.evaluateJavascript(DevtoolsScript.plugins(activity), null)
         }
     }
 

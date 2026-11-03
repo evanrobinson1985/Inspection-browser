@@ -7,11 +7,13 @@ import kotlinx.serialization.json.put
 
 /**
  * The script that loads Eruda (console, elements, network, resources, sources, snippets …)
- * and its plugins into pages. Read from the app's assets once and kept.
+ * into pages, and the plugin tabs that are added when DevTools are first opened on a page.
+ * Read from the app's assets once and kept.
  */
 object DevtoolsScript {
-    private val bundles = listOf(
-        "eruda", "eruda-code", "eruda-timing", "eruda-monitor", "eruda-features", "eruda-touches",
+    /** Extra tabs, loaded on demand: together they cost about as much to start as Eruda itself. */
+    private val pluginBundles = listOf(
+        "eruda-code", "eruda-timing", "eruda-monitor", "eruda-features", "eruda-touches",
         "eruda-orientation", "eruda-benchmark",
     )
     /** The globals the plugin bundles define, added as extra DevTools tabs. */
@@ -28,27 +30,41 @@ object DevtoolsScript {
         "resources" to "Resources (storage, cookies)", "sources" to "Sources", "info" to "Info", "snippets" to "Snippets",
     )
 
-    @Volatile private var code: Pair<String, String>? = null
+    private class Code(val boot: String, val eruda: String, val plugins: String)
 
-    private fun code(context: Context): Pair<String, String> = code ?: synchronized(this) {
+    @Volatile private var code: Code? = null
+
+    private fun code(context: Context): Code = code ?: synchronized(this) {
         code ?: run {
             val assets = context.applicationContext.assets
             fun read(name: String) = assets.open("devtools/$name").bufferedReader().use { it.readText() }
-            val all = bundles.joinToString("\n;\n") { read("$it.js") }
-            (read("boot.js") to all).also { code = it }
+            Code(read("boot.js"), read("eruda.js"), pluginBundles.joinToString("\n;\n") { read("$it.js") }).also { code = it }
         }
     }
 
-    /** The whole script for a page, with these choices. */
+    /**
+     * The script for every page. The plugin tabs come with it only when the floating button is
+     * on (that button opens DevTools without the app knowing, so it can't add them later).
+     */
     fun build(context: Context, entryButton: Boolean, displaySize: Int): String {
-        val (boot, all) = code(context)
+        val c = code(context)
         val config = buildJsonObject {
             put("entryButton", entryButton)
             put("displaySize", displaySize.coerceIn(30, 100))
+            put("pluginsBundled", entryButton)
             put("plugins", kotlinx.serialization.json.JsonArray(plugins.map { JsonPrimitive(it) }))
         }
-        return boot.replace("/*@CONFIG@*/", config.toString()).replace("/*@BUNDLES@*/", all)
+        val bundles = if (entryButton) c.eruda + "\n;\n" + c.plugins else c.eruda
+        return c.boot.replace("/*@CONFIG@*/", config.toString()).replace("/*@BUNDLES@*/", bundles)
     }
+
+    /** Adds the plugin tabs to a page's DevTools; does nothing if they're already there. */
+    fun plugins(context: Context): String =
+        "(function(){if(window.__ibPluginsLoaded||!window.__ibDevtools||!__ibDevtools.addPlugins)return;window.__ibPluginsLoaded=true;" +
+            "var define,module,exports;\n" + code(context).plugins + "\n;__ibDevtools.addPlugins();})();"
+
+    /** Whether the page still needs the plugin tabs. */
+    const val NEEDS_PLUGINS = "(function(){return !!(window.__ibDevtools&&__ibDevtools.addPlugins&&!window.__ibPluginsLoaded);})()"
 
     /** Opens or closes the panel; the page answers "open", "closed", "error:…" or "missing". */
     const val TOGGLE = "(function(){if(window.__ibDevtools)return __ibDevtools.toggle()?'open':'closed';" +

@@ -17,7 +17,7 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 - **Sources**: page HTML, scripts and styles, with line numbers
 - **Info**, **Snippets** (saved scripts to run on any page), and extra tabs: **Code** (a JS editor),
   **Timing** (Navigation and Resource Timing), **Monitor** (FPS and memory), **Features** (browser support),
-  **Touches**, **Orientation** and **Benchmark**
+  **Touches**, **Orientation** and **Benchmark** (these extra tabs load the first time DevTools are opened on a page, so pages load faster)
 - The 🐞 button shows a badge with the number of console errors on the page
 
 **Native inspection tools** that page scripts can't provide:
