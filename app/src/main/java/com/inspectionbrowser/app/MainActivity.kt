@@ -32,11 +32,8 @@ class MainActivity : ComponentActivity() {
             launchFileChooser = { fileChooser.launch(it) },
             askPermissions = { permissions.launch(it) },
         )
-        val restored = savedInstanceState?.getBundle(WEB_STATE)?.let { browser.restoreState(it) } ?: false
-        if (!restored) {
-            val start = linkFrom(intent)
-            if (start != null) browser.load(start) else browser.goHome()
-        }
+        // Last time's tabs come back; a link from another app opens in a new tab.
+        browser.start(if (savedInstanceState == null) linkFrom(intent) else null)
         setContent {
             BrowserTheme {
                 BrowserScreen(browser, app.updater, onExit = { moveTaskToBack(true) })
@@ -55,17 +52,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        linkFrom(intent)?.let(browser::load)
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putBundle(WEB_STATE, Bundle().also(browser::saveState))
+        linkFrom(intent)?.let { browser.newTab(it) }
     }
 
     override fun onResume() { super.onResume(); browser.onResume() }
     override fun onPause() { browser.onPause(); super.onPause() }
     override fun onDestroy() { browser.destroy(); super.onDestroy() }
-
-    private companion object { const val WEB_STATE = "web" }
 }

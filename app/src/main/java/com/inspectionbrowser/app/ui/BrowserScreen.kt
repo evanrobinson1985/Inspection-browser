@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Close
@@ -95,7 +96,7 @@ import com.inspectionbrowser.app.devtools.DevtoolsScript
 import com.inspectionbrowser.app.update.AppUpdater
 
 /** The browser's own full-screen panels, over the page. */
-enum class Panel { Requests, Source, Cookies, PageInfo, Settings, Bookmarks, History }
+enum class Panel { Tabs, Requests, Source, Cookies, PageInfo, Settings, Bookmarks, History }
 
 @Composable
 fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () -> Unit) {
@@ -147,6 +148,7 @@ fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () ->
                 Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
                     val close = { panel = null }
                     when (p) {
+                        Panel.Tabs -> TabsScreen(browser, close)
                         Panel.Requests -> RequestsScreen(browser, close)
                         Panel.Source -> SourceScreen(browser, close)
                         Panel.Cookies -> CookiesScreen(browser, close)
@@ -159,6 +161,7 @@ fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () ->
             }
         }
 
+        browser.longPressed?.let { LongPressMenu(browser, it) }
         browser.ask?.let { AskDialog(it) { allow, remember -> browser.answer(allow, remember) } }
     }
 }
@@ -303,10 +306,14 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
         IconButton(onClick = { onPanel(Panel.Requests) }, modifier = Modifier.weight(1f)) {
             Icon(Icons.Default.SwapVert, "Network requests")
         }
+        IconButton(onClick = { onPanel(Panel.Tabs) }, modifier = Modifier.weight(1f)) {
+            TabCount(browser.tabs.size)
+        }
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 fun pick(action: () -> Unit) { menu = false; action() }
+                DropdownMenuItem(text = { Text("New tab") }, leadingIcon = { Icon(Icons.Default.Add, null) }, onClick = { pick { browser.newTab(null) } })
                 DropdownMenuItem(text = { Text("Home") }, leadingIcon = { Icon(Icons.Default.Home, null) }, onClick = { pick(browser::goHome) })
                 DropdownMenuItem(text = { Text("Find in page") }, leadingIcon = { Icon(Icons.Default.FindInPage, null) }, onClick = { pick(onFind) })
                 DropdownMenuItem(text = { Text("Share") }, leadingIcon = { Icon(Icons.Default.Share, null) }, onClick = {

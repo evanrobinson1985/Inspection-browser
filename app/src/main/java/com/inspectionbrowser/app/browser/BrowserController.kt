@@ -11,7 +11,6 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslCertificate
 import android.net.http.SslError
-import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
@@ -54,6 +53,7 @@ import com.inspectionbrowser.app.net.LoggedRequest
 import com.inspectionbrowser.app.net.Requests
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicLong
@@ -90,9 +90,20 @@ sealed interface PageAsk {
     data class Location(val origin: String, val callback: GeolocationPermissions.Callback) : PageAsk
 }
 
+/** A long-pressed link and/or image, for its menu (open in new tab, copy …). */
+data class LongPressTarget(val link: String?, val image: String?)
+
+/** The open tabs, saved so they come back after the app is closed. */
+@Serializable
+private data class SavedTabs(val tabs: List<SavedTab>, val current: Int)
+
+@Serializable
+private data class SavedTab(val url: String, val title: String = "")
+
 /**
- * The browser itself: one WebView with DevTools injected into every page, a log of every
- * request, and the state the screen shows (address, progress, back/forward …).
+ * The browser itself: tabs, each a WebView with DevTools injected into every page and a log
+ * of every request, and the state the screen shows for the current one (address, progress,
+ * back/forward …).
  */
 @SuppressLint("SetJavaScriptEnabled")
 class BrowserController(
@@ -103,32 +114,340 @@ class BrowserController(
     private val askPermissions: (Array<String>) -> Unit,
 ) {
     private val main = Handler(Looper.getMainLooper())
+    private val tabIds = AtomicLong()
 
-    var webView: WebView by mutableStateOf(createWebView())
+    /** One page, with its own history, request log and DevTools. */
+    inner class Tab internal constructor(
+        /** Restored tabs load their page only when first shown. */
+        private var pendingUrl: String? = null,
+        savedTitle: String = "",
+        /** The tab that opened this one (target=_blank, window.open), to go back to when it has no history. */
+        val openerId: Long? = null,
+    ) {
+        val id = tabIds.incrementAndGet()
+
+        private var view: WebView? by mutableStateOf(null)
+        /** Made on first use, so restored tabs cost nothing until they're opened. */
+        val webView: WebView get() = view ?: createWebView().also { view = it; configure(reloadIfNeeded = false) }
+        val created: Boolean get() = view != null
+
+        var url by mutableStateOf(pendingUrl.orEmpty())
+            internal set
+        var title by mutableStateOf(savedTitle)
+            internal set
+        var favicon by mutableStateOf<Bitmap?>(null)
+            internal set
+        var progress by mutableIntStateOf(0)
+            internal set
+        var loading by mutableStateOf(false)
+            internal set
+        var canGoBack by mutableStateOf(false)
+            internal set
+        var canGoForward by mutableStateOf(false)
+            internal set
+        var certificate by mutableStateOf<SslCertificate?>(null)
+            internal set
+        var sslOverridden by mutableStateOf(false)
+            internal set
+        var errorCount by mutableIntStateOf(0)
+            internal set
+        val requests = RequestLog()
+
+        private var scriptHandler: ScriptHandler? = null
+        private var applied: List<Any?> = emptyList()
+        private var installedScript: String? = null
+
+        /** Loads a restored tab's page the first time it's shown. */
+        internal fun loadPending() {
+            val u = pendingUrl ?: return
+            pendingUrl = null
+            webView.loadUrl(u)
+        }
+
+        /** Puts the settings into this tab's WebView (if it has one yet). */
+        internal fun configure(reloadIfNeeded: Boolean) {
+            val wv = view ?: return
+            val s = settings
+            val ua = userAgentFor(s)
+            val now = listOf(ua, s.javaScript.value, devtoolsScript)
+            val needsReload = applied.isNotEmpty() && applied != now
+            applied = now
+            with(wv.settings) {
+                userAgentString = ua
+                javaScriptEnabled = s.javaScript.value
+                cacheMode = if (s.disableCache.value) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
+                textZoom = s.textZoom.value
+            }
+            CookieManager.getInstance().setAcceptThirdPartyCookies(wv, s.thirdPartyCookies.value)
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(wv.settings, s.darkPages.value)
+            }
+            if (installedScript !== devtoolsScript) {
+                scriptHandler?.remove()
+                scriptHandler = null
+                installedScript = devtoolsScript
+                val script = devtoolsScript
+                if (script != null && documentStartSupported) {
+                    scriptHandler = WebViewCompat.addDocumentStartJavaScript(wv, script, setOf("*"))
+                }
+            }
+            if (reloadIfNeeded && needsReload && url.isNotEmpty()) wv.reload()
+        }
+
+        /** For WebViews too old for document-start scripts: load DevTools as soon as the page commits. */
+        private fun injectLate(v: WebView) {
+            if (documentStartSupported) return
+            devtoolsScript?.let { v.evaluateJavascript(it, null) }
+        }
+
+        internal fun destroy() {
+            scriptHandler?.remove()
+            view?.let { (it.parent as? ViewGroup)?.removeView(it); it.destroy() }
+            view = null
+        }
+
+        private fun syncNavigation(v: WebView) {
+            canGoBack = v.canGoBack()
+            canGoForward = v.canGoForward()
+        }
+
+        private fun createWebView(): WebView = WebView(activity).apply {
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            with(settings) {
+                domStorageEnabled = true
+                @Suppress("DEPRECATION")
+                databaseEnabled = true
+                loadWithOverviewMode = true
+                useWideViewPort = true
+                builtInZoomControls = true
+                displayZoomControls = false
+                setSupportZoom(true)
+                setSupportMultipleWindows(true)
+                javaScriptCanOpenWindowsAutomatically = false
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                setGeolocationEnabled(true)
+                mediaPlaybackRequiresUserGesture = true
+            }
+            CookieManager.getInstance().setAcceptCookie(true)
+            webViewClient = Client()
+            webChromeClient = Chrome()
+            setDownloadListener { url, ua, disposition, mime, _ -> download(url, ua, disposition, mime) }
+            setFindListener { active, count, done ->
+                if (done && current === this@Tab) findResult = (if (count == 0) 0 else active + 1) to count
+            }
+            setOnLongClickListener { longPress(this) }
+        }
+
+        private fun longPress(v: WebView): Boolean {
+            val hit = v.hitTestResult
+            return when (hit.type) {
+                WebView.HitTestResult.SRC_ANCHOR_TYPE -> { longPressed = LongPressTarget(hit.extra, null); true }
+                WebView.HitTestResult.IMAGE_TYPE -> { longPressed = LongPressTarget(null, hit.extra); true }
+                WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                    // The hit only carries the image; ask WebView for the link around it.
+                    val image = hit.extra
+                    val reply = Handler(Looper.getMainLooper()) { m ->
+                        longPressed = LongPressTarget(m.data.getString("url") ?: image, image)
+                        true
+                    }.obtainMessage()
+                    v.requestFocusNodeHref(reply)
+                    true
+                }
+                else -> false
+            }
+        }
+
+        private inner class Client : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                val url = request.url.toString()
+                val headers = request.requestHeaders.orEmpty()
+                val entry = LoggedRequest(
+                    id = requests.nextId(), time = System.currentTimeMillis(), method = request.method ?: "GET", url = url,
+                    mainFrame = request.isForMainFrame, hasGesture = request.hasGesture(),
+                    redirect = runCatching { request.isRedirect }.getOrDefault(false),
+                    headers = headers, type = Requests.classify(url, headers, request.isForMainFrame),
+                )
+                main.post {
+                    if (entry.mainFrame && !entry.redirect && !settings.preserveLog.value) requests.clear()
+                    requests.add(entry)
+                }
+                return null
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val uri = request.url
+                return when (uri.scheme?.lowercase()) {
+                    "http", "https", "about", "data", "javascript", "blob", "file", null -> false
+                    "intent" -> {
+                        runCatching {
+                            val intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME).addCategory(Intent.CATEGORY_BROWSABLE)
+                            intent.component = null
+                            intent.selector = null
+                            try { activity.startActivity(intent) } catch (_: ActivityNotFoundException) {
+                                intent.getStringExtra("browser_fallback_url")?.let { view.loadUrl(it) }
+                            }
+                        }
+                        true
+                    }
+                    else -> {
+                        try { activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) } catch (_: ActivityNotFoundException) {
+                            toast("No app opens ${uri.scheme}: links")
+                        }
+                        true
+                    }
+                }
+            }
+
+            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                this@Tab.url = url
+                this@Tab.favicon = favicon
+                loading = true
+                errorCount = 0
+                certificate = null
+                sslOverridden = false
+                syncNavigation(view)
+            }
+
+            override fun onPageCommitVisible(view: WebView, url: String) { injectLate(view) }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                loading = false
+                this@Tab.url = view.url ?: url
+                certificate = view.certificate
+                syncNavigation(view)
+                injectLate(view)
+                library.addHistory(this@Tab.url, view.title.orEmpty())
+                saveTabs()
+            }
+
+            override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                this@Tab.url = url
+                syncNavigation(view)
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                val u = request.url.toString()
+                main.post { requests.markStatus(u, response.statusCode, response.reasonPhrase) }
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                val u = request.url.toString()
+                val text = error.description?.toString() ?: "error ${error.errorCode}"
+                main.post { requests.markError(u, text) }
+            }
+
+            @SuppressLint("WebViewClientOnReceivedSslError")
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                raise(this@Tab, PageAsk.Ssl(error, handler))
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                // The renderer crashed or was killed: give this tab a fresh WebView and load the page again.
+                val last = url
+                scriptHandler = null
+                installedScript = null
+                applied = emptyList()
+                (view.parent as? ViewGroup)?.removeView(view)
+                view.destroy()
+                this@Tab.view = null
+                pendingUrl = last.ifEmpty { null }
+                if (current === this@Tab) {
+                    toast(if (detail.didCrash()) "The page crashed; reloading" else "The page was closed to free memory; reloading")
+                    loadPending()
+                }
+                return true
+            }
+        }
+
+        private inner class Chrome : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
+            override fun onReceivedTitle(view: WebView, title: String?) { this@Tab.title = title.orEmpty() }
+            override fun onReceivedIcon(view: WebView, icon: Bitmap?) { favicon = icon }
+
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) main.post { errorCount++ }
+                return false
+            }
+
+            // target=_blank and window.open: a new tab, linked to this one (window.opener works).
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+                val tab = Tab(openerId = this@Tab.id)
+                tabs.add((tabs.indexOf(this@Tab) + 1).coerceIn(0, tabs.size), tab)
+                (resultMsg.obj as WebView.WebViewTransport).webView = tab.webView
+                resultMsg.sendToTarget()
+                select(tab)
+                return true
+            }
+
+            override fun onCloseWindow(window: WebView) { close(this@Tab) }
+
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                if (customView != null) { callback.onCustomViewHidden(); return }
+                customView = view
+                customViewCallback = callback
+            }
+
+            override fun onHideCustomView() {
+                customView = null
+                customViewCallback = null
+            }
+
+            override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                fileCallback?.onReceiveValue(null)
+                fileCallback = callback
+                return try {
+                    launchFileChooser(params.createIntent())
+                    true
+                } catch (_: ActivityNotFoundException) {
+                    fileCallback = null
+                    false
+                }
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val camera = PermissionRequest.RESOURCE_VIDEO_CAPTURE in request.resources
+                val mic = PermissionRequest.RESOURCE_AUDIO_CAPTURE in request.resources
+                if (!camera && !mic) { request.grant(request.resources); return }
+                main.post { raise(this@Tab, PageAsk.Media(request, camera, mic)) }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                if ((ask as? PageAsk.Media)?.request == request) ask = null
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
+                if (settings.blockLocation.value) callback.invoke(origin, false, false)
+                else raise(this@Tab, PageAsk.Location(origin, callback))
+            }
+
+            override fun onGeolocationPermissionsHidePrompt() {
+                if (ask is PageAsk.Location) ask = null
+            }
+        }
+    }
+
+    val tabs = mutableStateListOf<Tab>()
+    /** Starts as a placeholder (no WebView yet) until [start] restores or opens the real tabs. */
+    var current: Tab by mutableStateOf(Tab())
         private set
 
-    var url by mutableStateOf("")
-        private set
-    var title by mutableStateOf("")
-        private set
-    var favicon by mutableStateOf<Bitmap?>(null)
-        private set
-    var progress by mutableIntStateOf(0)
-        private set
-    var loading by mutableStateOf(false)
-        private set
-    var canGoBack by mutableStateOf(false)
-        private set
-    var canGoForward by mutableStateOf(false)
-        private set
-    var certificate by mutableStateOf<SslCertificate?>(null)
-        private set
+    // The current tab's state, which is what the screen shows.
+    val webView: WebView get() = current.webView
+    val url: String get() = current.url
+    val title: String get() = current.title
+    val favicon: Bitmap? get() = current.favicon
+    val progress: Int get() = current.progress
+    val loading: Boolean get() = current.loading
+    /** Back also works from a tab a link opened: it closes and returns to that page. */
+    val canGoBack: Boolean get() = current.canGoBack || current.openerId?.let { id -> tabs.any { it.id == id } } == true
+    val canGoForward: Boolean get() = current.canGoForward
+    val certificate: SslCertificate? get() = current.certificate
     /** Set when the user chose to carry on past a certificate error on this page. */
-    var sslOverridden by mutableStateOf(false)
-        private set
+    val sslOverridden: Boolean get() = current.sslOverridden
     /** Console errors and uncaught exceptions since the page started loading. */
-    var errorCount by mutableIntStateOf(0)
-        private set
+    val errorCount: Int get() = current.errorCount
+    val requests: RequestLog get() = current.requests
+
     var findResult by mutableStateOf(0 to 0)
         private set
     /** Fullscreen video and the like. */
@@ -141,7 +460,8 @@ class BrowserController(
     private var pendingPermission: PageAsk? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
-    val requests = RequestLog()
+    /** A link or image the user long-pressed, for its menu. */
+    var longPressed by mutableStateOf<LongPressTarget?>(null)
 
     /** WebView's own user agent, before any override. */
     val webViewUserAgent: String = WebSettings.getDefaultUserAgent(activity)
@@ -149,9 +469,10 @@ class BrowserController(
 
     val documentStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     private var devtoolsScript: String? = null
-    private var scriptHandler: ScriptHandler? = null
-    private var applied: List<Any?> = emptyList()
-    private var installed: List<Any?>? = null
+    private var devtoolsKey: List<Any?>? = null
+
+    private val prefs = activity.getSharedPreferences("tabs", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
 
     init {
         applySettings(reloadIfNeeded = false)
@@ -164,74 +485,98 @@ class BrowserController(
         }
     }
 
-    private fun createWebView(): WebView = WebView(activity).apply {
-        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        with(settings) {
-            domStorageEnabled = true
-            @Suppress("DEPRECATION")
-            databaseEnabled = true
-            loadWithOverviewMode = true
-            useWideViewPort = true
-            builtInZoomControls = true
-            displayZoomControls = false
-            setSupportZoom(true)
-            setSupportMultipleWindows(true)
-            javaScriptCanOpenWindowsAutomatically = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            setGeolocationEnabled(true)
-            mediaPlaybackRequiresUserGesture = true
-        }
-        CookieManager.getInstance().setAcceptCookie(true)
-        webViewClient = Client()
-        webChromeClient = Chrome()
-        setDownloadListener { url, ua, disposition, mime, _ -> download(url, ua, disposition, mime) }
-        setFindListener { active, count, done -> if (done) findResult = (if (count == 0) 0 else active + 1) to count }
+    private fun userAgentFor(s: Settings): String {
+        val id = if (s.desktopMode.value) (s.userAgent.value.takeIf { UserAgents.preset(it).desktop } ?: UserAgents.DESKTOP) else s.userAgent.value
+        return UserAgents.resolve(id, webViewUserAgent, s.customUserAgent.value)
     }
 
-    /** Puts the settings into WebView; reloads the page when that's needed for them to show. */
+    /** Puts the settings into every tab; reloads pages when that's needed for them to show. */
     fun applySettings(reloadIfNeeded: Boolean) {
-        val s = settings
-        val uaId = if (s.desktopMode.value) (s.userAgent.value.takeIf { UserAgents.preset(it).desktop } ?: UserAgents.DESKTOP) else s.userAgent.value
-        val ua = UserAgents.resolve(uaId, webViewUserAgent, s.customUserAgent.value)
-        val now = listOf(ua, s.javaScript.value, s.devtools.value, s.devtoolsButton.value, s.devtoolsSize.value)
-        val needsReload = applied.isNotEmpty() && applied != now
-        applied = now
-
-        WebView.setWebContentsDebuggingEnabled(s.remoteDebugging.value)
-        with(webView.settings) {
-            userAgentString = ua
-            javaScriptEnabled = s.javaScript.value
-            cacheMode = if (s.disableCache.value) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
-            textZoom = s.textZoom.value
+        WebView.setWebContentsDebuggingEnabled(settings.remoteDebugging.value)
+        val key = listOf(settings.devtools.value, settings.devtoolsButton.value, settings.devtoolsSize.value)
+        if (key != devtoolsKey) {
+            devtoolsKey = key
+            devtoolsScript = if (settings.devtools.value) DevtoolsScript.build(activity, settings.devtoolsButton.value, settings.devtoolsSize.value) else null
         }
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, s.thirdPartyCookies.value)
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
-            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, s.darkPages.value)
-        }
-        installDevtools()
-        if (reloadIfNeeded && needsReload && url.isNotEmpty()) webView.reload()
+        tabs.forEach { it.configure(reloadIfNeeded) }
     }
 
-    private fun installDevtools() {
-        val wanted = listOf(settings.devtools.value, settings.devtoolsButton.value, settings.devtoolsSize.value)
-        if (wanted == installed) return
-        installed = wanted
-        scriptHandler?.remove()
-        scriptHandler = null
-        devtoolsScript = null
-        if (!settings.devtools.value) return
-        val script = DevtoolsScript.build(activity, settings.devtoolsButton.value, settings.devtoolsSize.value)
-        devtoolsScript = script
-        if (documentStartSupported) {
-            scriptHandler = WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+    // --- Tabs ---
+
+    /** Brings back the tabs from last time (or opens a home tab), then opens [link] in a new tab if given. */
+    fun start(link: String?) {
+        val saved = runCatching { json.decodeFromString(SavedTabs.serializer(), prefs.getString("tabs", null) ?: "") }.getOrNull()
+        saved?.tabs?.forEach { tabs += Tab(pendingUrl = it.url.ifEmpty { null }, savedTitle = it.title) }
+        when {
+            link != null -> newTab(link)
+            tabs.isEmpty() || saved == null -> newTab(null)
+            else -> select(tabs[saved.current.coerceIn(0, tabs.size - 1)])
         }
     }
 
-    /** For WebViews too old for document-start scripts: load DevTools as soon as the page commits. */
-    private fun injectLate(view: WebView) {
-        if (documentStartSupported) return
-        devtoolsScript?.let { view.evaluateJavascript(it, null) }
+    /**
+     * Opens a tab with [input] (an address or a search; the home page when null). [background]
+     * keeps the current tab showing; [fromCurrent] puts it next to the current tab, which Back returns to.
+     */
+    fun newTab(input: String?, background: Boolean = false, fromCurrent: Boolean = false): Tab {
+        val tab = Tab(openerId = if (fromCurrent) current.id else null)
+        val at = if (fromCurrent) tabs.indexOf(current) + 1 else tabs.size
+        tabs.add(at.coerceIn(0, tabs.size), tab)
+        val target = UrlInput.resolve(input ?: settings.homePage.value, UrlInput.engine(settings.searchEngine.value))
+        tab.url = target
+        tab.webView.loadUrl(target)
+        if (background) saveTabs() else select(tab)
+        return tab
     }
+
+    fun select(tab: Tab) {
+        if (tab !in tabs) return
+        val previous = current
+        if (previous !== tab && previous.created) {
+            previous.webView.clearMatches()
+            previous.webView.evaluateJavascript(DevtoolsScript.HIDE_IF_OPEN, null)
+            previous.webView.onPause()
+        }
+        current = tab
+        findResult = 0 to 0
+        tab.webView.onResume()
+        tab.loadPending()
+        saveTabs()
+    }
+
+    /** Closes [tab]; the tab that opened it, or a neighbour, takes its place. Closing the last opens a home tab. */
+    fun close(tab: Tab) {
+        val index = tabs.indexOf(tab)
+        if (index < 0) return
+        val wasCurrent = tab === current
+        tabs.removeAt(index)
+        when {
+            tabs.isEmpty() -> newTab(null)
+            wasCurrent -> select(tabs.firstOrNull { it.id == tab.openerId } ?: tabs[(index - 1).coerceAtLeast(0)])
+        }
+        tab.destroy()
+        saveTabs()
+    }
+
+    fun closeAll() {
+        val old = tabs.toList()
+        tabs.clear()
+        newTab(null)
+        old.forEach { it.destroy() }
+    }
+
+    fun saveTabs() {
+        val state = SavedTabs(tabs.map { SavedTab(it.url, it.title) }, tabs.indexOf(current).coerceAtLeast(0))
+        prefs.edit().putString("tabs", json.encodeToString(SavedTabs.serializer(), state)).apply()
+    }
+
+    /** A page asked for something: show its tab with the question. */
+    private fun raise(tab: Tab, question: PageAsk) {
+        if (tab !== current) select(tab)
+        ask = question
+    }
+
+    // --- The current tab ---
 
     fun load(input: String) {
         val target = UrlInput.resolve(input, UrlInput.engine(settings.searchEngine.value))
@@ -241,17 +586,31 @@ class BrowserController(
 
     fun loadUrl(url: String) = webView.loadUrl(url)
     fun goHome() = load(settings.homePage.value)
-    fun back() { if (webView.canGoBack()) webView.goBack() }
+    fun back() {
+        val tab = current
+        when {
+            tab.webView.canGoBack() -> tab.webView.goBack()
+            tab.openerId != null && tabs.any { it.id == tab.openerId } -> close(tab)
+        }
+    }
     fun forward() { if (webView.canGoForward()) webView.goForward() }
     fun reload() = webView.reload()
     fun stop() = webView.stopLoading()
 
-    /** Back: closes DevTools if it's open, then goes back a page; [exit] when there's nowhere to go. */
+    /**
+     * Back: closes DevTools if it's open, then goes back a page, then closes a tab that a link
+     * opened (returning to that page); [exit] when there's nowhere to go.
+     */
     fun handleBack(exit: () -> Unit) {
         if (customView != null) { exitFullscreen(); return }
-        webView.evaluateJavascript(DevtoolsScript.HIDE_IF_OPEN) { hid ->
-            if (hid == "true") return@evaluateJavascript
-            if (webView.canGoBack()) webView.goBack() else exit()
+        val tab = current
+        tab.webView.evaluateJavascript(DevtoolsScript.HIDE_IF_OPEN) { hid ->
+            when {
+                hid == "true" -> Unit
+                tab.webView.canGoBack() -> tab.webView.goBack()
+                tab.openerId != null && tabs.any { it.id == tab.openerId } -> close(tab)
+                else -> exit()
+            }
         }
     }
 
@@ -261,15 +620,16 @@ class BrowserController(
             toast("DevTools are switched off in Settings")
             return
         }
+        val wv = webView
         val js = if (tool != null) DevtoolsScript.show(tool) else DevtoolsScript.TOGGLE
-        webView.evaluateJavascript(js) { result ->
+        wv.evaluateJavascript(js) { result ->
             val r = result?.trim('"').orEmpty()
             when {
                 r == "missing" || r == "null" || r.isEmpty() -> {
                     // Not in this page yet (opened before DevTools were on, or a page JS can't run in).
                     val script = devtoolsScript ?: return@evaluateJavascript
-                    webView.evaluateJavascript(script) {
-                        webView.evaluateJavascript(DevtoolsScript.show(tool ?: "")) { again ->
+                    wv.evaluateJavascript(script) {
+                        wv.evaluateJavascript(DevtoolsScript.show(tool ?: "")) { again ->
                             if (again?.trim('"') != "open") toast(if (settings.javaScript.value) "DevTools can't run on this page" else "DevTools need JavaScript (Settings)")
                         }
                     }
@@ -336,7 +696,7 @@ class BrowserController(
         val a = ask ?: return
         ask = null
         when (a) {
-            is PageAsk.Ssl -> if (allow) { sslOverridden = true; a.handler.proceed() } else a.handler.cancel()
+            is PageAsk.Ssl -> if (allow) { current.sslOverridden = true; a.handler.proceed() } else a.handler.cancel()
             is PageAsk.Media -> {
                 if (!allow) { a.request.deny(); return }
                 val needed = buildList {
@@ -402,189 +762,12 @@ class BrowserController(
         }.onSuccess { toast("Downloading $name") }.onFailure { toast("Couldn't download: ${it.message}") }
     }
 
+    /** Saves a long-pressed image to Downloads. */
+    fun downloadImage(url: String) = download(url, userAgent, null, null)
+
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_LONG).show()
 
-    private fun syncNavigation(view: WebView) {
-        canGoBack = view.canGoBack()
-        canGoForward = view.canGoForward()
-    }
-
-    fun saveState(out: Bundle) { webView.saveState(out) }
-    fun restoreState(state: Bundle): Boolean = webView.restoreState(state) != null
-
-    fun onResume() { webView.onResume(); webView.resumeTimers() }
-    fun onPause() { webView.onPause() }
-    fun destroy() {
-        scriptHandler?.remove()
-        (webView.parent as? ViewGroup)?.removeView(webView)
-        webView.destroy()
-    }
-
-    private inner class Client : WebViewClient() {
-        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-            val url = request.url.toString()
-            val headers = request.requestHeaders.orEmpty()
-            val entry = LoggedRequest(
-                id = requests.nextId(), time = System.currentTimeMillis(), method = request.method ?: "GET", url = url,
-                mainFrame = request.isForMainFrame, hasGesture = request.hasGesture(),
-                redirect = runCatching { request.isRedirect }.getOrDefault(false),
-                headers = headers, type = Requests.classify(url, headers, request.isForMainFrame),
-            )
-            main.post {
-                if (entry.mainFrame && !entry.redirect && !settings.preserveLog.value) requests.clear()
-                requests.add(entry)
-            }
-            return null
-        }
-
-        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            val uri = request.url
-            return when (uri.scheme?.lowercase()) {
-                "http", "https", "about", "data", "javascript", "blob", "file", null -> false
-                "intent" -> {
-                    runCatching {
-                        val intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME).addCategory(Intent.CATEGORY_BROWSABLE)
-                        intent.component = null
-                        intent.selector = null
-                        try { activity.startActivity(intent) } catch (_: ActivityNotFoundException) {
-                            intent.getStringExtra("browser_fallback_url")?.let { view.loadUrl(it) }
-                        }
-                    }
-                    true
-                }
-                else -> {
-                    try { activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) } catch (_: ActivityNotFoundException) {
-                        toast("No app opens ${uri.scheme}: links")
-                    }
-                    true
-                }
-            }
-        }
-
-        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            this@BrowserController.url = url
-            this@BrowserController.favicon = favicon
-            loading = true
-            errorCount = 0
-            certificate = null
-            sslOverridden = false
-            syncNavigation(view)
-        }
-
-        override fun onPageCommitVisible(view: WebView, url: String) { injectLate(view) }
-
-        override fun onPageFinished(view: WebView, url: String) {
-            loading = false
-            this@BrowserController.url = view.url ?: url
-            certificate = view.certificate
-            syncNavigation(view)
-            injectLate(view)
-            library.addHistory(this@BrowserController.url, view.title.orEmpty())
-        }
-
-        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
-            this@BrowserController.url = url
-            syncNavigation(view)
-        }
-
-        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-            val u = request.url.toString()
-            main.post { requests.markStatus(u, response.statusCode, response.reasonPhrase) }
-        }
-
-        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            val u = request.url.toString()
-            val text = error.description?.toString() ?: "error ${error.errorCode}"
-            main.post { requests.markError(u, text) }
-        }
-
-        @SuppressLint("WebViewClientOnReceivedSslError")
-        override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-            ask = PageAsk.Ssl(error, handler)
-        }
-
-        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-            // The page's renderer crashed or was killed: swap in a fresh WebView and load it again.
-            val last = url
-            (view.parent as? ViewGroup)?.removeView(view)
-            view.destroy()
-            scriptHandler = null
-            webView = createWebView()
-            applied = emptyList()
-            installed = null
-            applySettings(reloadIfNeeded = false)
-            toast(if (detail.didCrash()) "The page crashed; reloading" else "The page was closed to free memory; reloading")
-            if (last.isNotEmpty()) webView.loadUrl(last)
-            return true
-        }
-    }
-
-    private inner class Chrome : WebChromeClient() {
-        override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
-        override fun onReceivedTitle(view: WebView, title: String?) { this@BrowserController.title = title.orEmpty() }
-        override fun onReceivedIcon(view: WebView, icon: Bitmap?) { favicon = icon }
-
-        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-            if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) main.post { errorCount++ }
-            return false
-        }
-
-        // window.open and target=_blank: no tabs, so they open in this page.
-        override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
-            val probe = WebView(activity)
-            probe.webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                    view.loadUrl(request.url.toString())
-                    probe.destroy()
-                    return true
-                }
-            }
-            (resultMsg.obj as WebView.WebViewTransport).webView = probe
-            resultMsg.sendToTarget()
-            return true
-        }
-
-        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-            if (customView != null) { callback.onCustomViewHidden(); return }
-            customView = view
-            customViewCallback = callback
-        }
-
-        override fun onHideCustomView() {
-            customView = null
-            customViewCallback = null
-        }
-
-        override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-            fileCallback?.onReceiveValue(null)
-            fileCallback = callback
-            return try {
-                launchFileChooser(params.createIntent())
-                true
-            } catch (_: ActivityNotFoundException) {
-                fileCallback = null
-                false
-            }
-        }
-
-        override fun onPermissionRequest(request: PermissionRequest) {
-            val camera = PermissionRequest.RESOURCE_VIDEO_CAPTURE in request.resources
-            val mic = PermissionRequest.RESOURCE_AUDIO_CAPTURE in request.resources
-            if (!camera && !mic) { request.grant(request.resources); return }
-            main.post { ask = PageAsk.Media(request, camera, mic) }
-        }
-
-        override fun onPermissionRequestCanceled(request: PermissionRequest) {
-            if ((ask as? PageAsk.Media)?.request == request) ask = null
-        }
-
-        override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
-            if (settings.blockLocation.value) callback.invoke(origin, false, false)
-            else ask = PageAsk.Location(origin, callback)
-        }
-
-        override fun onGeolocationPermissionsHidePrompt() {
-            if (ask is PageAsk.Location) ask = null
-        }
-    }
+    fun onResume() { if (current.created) { webView.onResume(); webView.resumeTimers() } }
+    fun onPause() { if (current.created) webView.onPause(); saveTabs() }
+    fun destroy() = tabs.forEach { it.destroy() }
 }

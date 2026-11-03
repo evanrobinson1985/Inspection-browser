@@ -43,6 +43,10 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 
 ## Browser
 
+- Tabs: the tab button shows how many are open and lists them to switch or close; ⋮ ▸ New tab; long-press a link or
+  image to open it in a new or background tab, copy, share or download it. Links that open a new window (`target=_blank`,
+  `window.open`) get their own tab, and Back from one returns to the page that opened it. Each tab has its own history,
+  request log and DevTools, and the tabs come back when the app is reopened (loading only when you open them)
 - Address bar that searches or opens URLs (Google, DuckDuckGo, Bing, Brave or Startpage), with suggestions from bookmarks and history
 - Back / forward / reload / stop, find in page, share, bookmarks, history
 - Downloads (to Downloads, with the page's cookies), file uploads, camera / microphone / location for pages (asked per page),
