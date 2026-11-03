@@ -10,7 +10,9 @@ and Jetpack Compose.
 [Eruda](https://github.com/liriliri/eruda). They're bundled in the app (no network needed) and
 loaded *before the page's own scripts*, so nothing from the first line on is missed:
 
-- **Console**: every log, warning and uncaught error from page start, plus a JavaScript prompt that runs in the page
+- **Console**: every log, warning and uncaught error from page start, plus a JavaScript prompt that runs in the page; **Copy all** in its
+  toolbar (or ⋮ ▸ Copy console log) copies every message at once as text: levels, objects written out, error stack
+  traces. ⋮ ▸ Share console log sends the whole log as a text file
 - **Elements**: the live DOM tree, element picker, computed styles, box model, attributes and event listeners
 - **Network**: fetch / XHR with headers, timing and response bodies
 - **Resources**: localStorage, sessionStorage, cookies, scripts, stylesheets, iframes, images
