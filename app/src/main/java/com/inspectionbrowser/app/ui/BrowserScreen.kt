@@ -30,13 +30,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Cookie
 import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.FindInPage
@@ -371,8 +369,6 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
                 )
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("DevTools…") }, leadingIcon = { Icon(Icons.Default.Terminal, null) }, onClick = { pick { devMenu = true } })
-                DropdownMenuItem(text = { Text("Copy console log") }, leadingIcon = { Icon(Icons.Default.ContentCopy, null) }, onClick = { pick(browser::copyConsole) })
-                DropdownMenuItem(text = { Text("Share console log") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, null) }, onClick = { pick(browser::shareConsole) })
                 DropdownMenuItem(text = { Text("View page source") }, leadingIcon = { Icon(Icons.Default.Code, null) }, onClick = { pick { onPanel(Panel.Source) } })
                 DropdownMenuItem(text = { Text("Network requests") }, leadingIcon = { Icon(Icons.Default.SwapVert, null) }, onClick = { pick { onPanel(Panel.Requests) } })
                 DropdownMenuItem(text = { Text("Cookies") }, leadingIcon = { Icon(Icons.Default.Cookie, null) }, onClick = { pick { onPanel(Panel.Cookies) } })
