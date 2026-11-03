@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -76,6 +78,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -85,7 +88,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
@@ -336,9 +342,15 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
         IconButton(onClick = { onPanel(Panel.Tabs) }, modifier = Modifier.weight(1f)) {
             TabCount(browser.tabs.size)
         }
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+        // The menus open upwards from here; they're kept to the room above this button (below the
+        // status bar) so they never run under the system navigation bar, and scroll if they're longer.
+        val density = LocalDensity.current
+        val statusBar = WindowInsets.statusBars.getTop(density)
+        var menuTop by remember { mutableIntStateOf(0) }
+        val menuHeight = with(density) { (menuTop - statusBar).coerceAtLeast(0).toDp() - 16.dp }.coerceAtLeast(160.dp)
+        Box(Modifier.weight(1f).onGloballyPositioned { menuTop = it.positionInWindow().y.toInt() }, contentAlignment = Alignment.Center) {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.heightIn(max = menuHeight)) {
                 fun pick(action: () -> Unit) { menu = false; action() }
                 DropdownMenuItem(text = { Text("New tab") }, leadingIcon = { Icon(Icons.Default.Add, null) }, onClick = { pick { browser.newTab(null) } })
                 DropdownMenuItem(text = { Text("New private tab") }, leadingIcon = { Icon(Icons.Default.VisibilityOff, null) }, onClick = { pick { browser.newTab(null, incognito = true) } })
@@ -372,7 +384,7 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
                 DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { pick { onPanel(Panel.Settings) } })
             }
             qr?.let { QrDialog(it, onDismiss = { qr = null }) }
-            DropdownMenu(expanded = devMenu, onDismissRequest = { devMenu = false }) {
+            DropdownMenu(expanded = devMenu, onDismissRequest = { devMenu = false }, modifier = Modifier.heightIn(max = menuHeight)) {
                 DevtoolsScript.tools.forEach { (tool, label) ->
                     DropdownMenuItem(text = { Text(label) }, onClick = { devMenu = false; browser.toggleDevtools(tool) })
                 }
