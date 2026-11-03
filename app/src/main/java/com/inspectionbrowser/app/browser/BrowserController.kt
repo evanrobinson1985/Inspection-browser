@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -42,6 +44,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
@@ -58,6 +61,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 /** The requests WebView reported, newest last. Only touched on the main thread. */
@@ -741,6 +748,46 @@ class BrowserController(
         }
     }
 
+    /** Everything in the DevTools console as text; null when DevTools aren't in this page. */
+    private fun consoleText(done: (String?) -> Unit) {
+        webView.evaluateJavascript("(function(){return window.__ibDevtools&&__ibDevtools.consoleText?__ibDevtools.consoleText():null;})()") { json ->
+            done(runCatching { Json.decodeFromString(String.serializer(), json) }.getOrNull())
+        }
+    }
+
+    private fun noConsole() = toast(
+        if (!settings.devtools.value) "Turn on DevTools in Settings to record the console"
+        else "There's no console for this page yet; open DevTools (🐞) once, then try again",
+    )
+
+    private fun messageCount(text: String) = text.lineSequence().drop(2).firstOrNull()?.substringBefore(' ')?.toIntOrNull() ?: 0
+
+    /** Copies every console message at once. Very long logs keep their newest part (the clipboard has a size limit). */
+    fun copyConsole() = consoleText { text ->
+        if (text == null) { noConsole(); return@consoleText }
+        val clip = if (text.length <= MAX_CLIP) text else "… older messages cut; use Share console log for all of it\n" + text.takeLast(MAX_CLIP)
+        activity.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Console log", clip))
+        toast("Copied ${messageCount(text)} console messages")
+    }
+
+    /** Shares every console message as a text file (no size limit), e.g. to email or save it. */
+    fun shareConsole() = consoleText { text ->
+        if (text == null) { noConsole(); return@consoleText }
+        runCatching {
+            val dir = File(activity.cacheDir, "shared").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val stamp = SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())
+            val host = Uri.parse(url).host?.replace(Regex("[^A-Za-z0-9.-]"), "") ?: "page"
+            val file = File(dir, "console-$host-$stamp.txt").apply { writeText(text) }
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .putExtra(Intent.EXTRA_SUBJECT, "Console log: $url")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            activity.startActivity(Intent.createChooser(send, "Share console log"))
+        }.onFailure { toast("Couldn't share the console log: ${it.message}") }
+    }
+
     /** Runs [js] in the page and hands back its JSON result. */
     fun evaluate(js: String, done: (String?) -> Unit) = webView.evaluateJavascript(js, done)
 
@@ -865,4 +912,9 @@ class BrowserController(
     fun onResume() { if (current.created) { webView.onResume(); webView.resumeTimers() } }
     fun onPause() { if (current.created) webView.onPause(); saveTabs() }
     fun destroy() = tabs.forEach { it.destroy() }
+
+    private companion object {
+        /** Characters; Android's clipboard fails on much more than ~1 MB. */
+        const val MAX_CLIP = 400_000
+    }
 }
