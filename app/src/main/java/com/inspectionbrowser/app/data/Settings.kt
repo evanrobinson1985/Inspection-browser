@@ -44,6 +44,7 @@ class Settings(context: Context) {
     /** Turn down every site's request for location without asking. */
     val blockLocation = bool("blockLocation", false)
     val textZoom = int("textZoom", 100)
+    val pullToRefresh = bool("pullToRefresh", true)
 
     /** Eruda loaded into every page before its scripts. */
     val devtools = bool("devtools", true)

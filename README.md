@@ -28,6 +28,9 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 - **View page source**: the source as the server sent it (re-fetched with the page's cookies and user agent),
   the **live DOM** after scripts ran, or the response headers, highlighted, searchable, wrap or scroll, copy and share
 - **Cookies**: all of the site's cookies, *including HttpOnly ones*, with add and delete
+- **Page speed** (⋮ ▸ Page speed): server response, first and largest contentful paint, layout shift, load time,
+  page weight and request count, rated against the usual web-vitals thresholds; downloads by type, and the largest
+  and slowest files
 - **Page info**: TLS certificate, viewport, device pixel ratio, colour scheme, connection, the meta viewport, element counts,
   the user agent actually sent, and the WebView version
 - **Remote debugging**: full desktop Chrome DevTools over USB. Turn on USB debugging on the phone, plug it into a computer, and
@@ -47,6 +50,11 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
   image to open it in a new or background tab, copy, share or download it. Links that open a new window (`target=_blank`,
   `window.open`) get their own tab, and Back from one returns to the page that opened it. Each tab has its own history,
   request log and DevTools, and the tabs come back when the app is reopened (loading only when you open them)
+- Tab list as cards with a picture of each page
+- Private tabs (⋮ ▸ New private tab, or long-press a link): no history, not saved with the other tabs, and their own
+  cookies and storage, wiped when the last private tab closes (on older WebViews they only skip history)
+- QR code of the page's address (⋮ ▸ QR code) to open it on another device
+- Pull down to refresh at the top of a page (not on scrolled boxes inside it or the DevTools panel; can be switched off)
 - Address bar that searches or opens URLs (Google, DuckDuckGo, Bing, Brave or Startpage), with suggestions from bookmarks and history
 - Back / forward / reload / stop, find in page, share, bookmarks, history
 - Downloads (to Downloads, with the page's cookies), file uploads, camera / microphone / location for pages (asked per page),

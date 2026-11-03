@@ -44,13 +44,16 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -89,6 +92,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.inspectionbrowser.app.browser.BrowserController
 import com.inspectionbrowser.app.browser.PageAsk
 import com.inspectionbrowser.app.browser.UrlInput
@@ -96,7 +100,7 @@ import com.inspectionbrowser.app.devtools.DevtoolsScript
 import com.inspectionbrowser.app.update.AppUpdater
 
 /** The browser's own full-screen panels, over the page. */
-enum class Panel { Tabs, Requests, Source, Cookies, PageInfo, Settings, Bookmarks, History }
+enum class Panel { Tabs, Requests, Source, Cookies, PageInfo, Speed, Settings, Bookmarks, History }
 
 @Composable
 fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () -> Unit) {
@@ -121,15 +125,31 @@ fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () ->
             if (browser.loading) LinearProgressIndicator(progress = { browser.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
             else Spacer(Modifier.height(2.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                val pull by browser.settings.pullToRefresh.flow.collectAsState()
                 key(browser.webView) {
                     AndroidView(
-                        factory = { browser.webView.also { (it.parent as? ViewGroup)?.removeView(it) } },
+                        factory = { context ->
+                            // Pull down at the top of the page to reload.
+                            SwipeRefreshLayout(context).apply {
+                                val page = browser.webView.also { (it.parent as? ViewGroup)?.removeView(it) }
+                                addView(page, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                                setOnChildScrollUpCallback { _, _ -> !browser.canPullToRefresh() }
+                                setOnRefreshListener {
+                                    browser.reload()
+                                    postDelayed({ isRefreshing = false }, 600)
+                                }
+                            }
+                        },
+                        update = { it.isEnabled = pull },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
                 if (editing) Suggestions(browser, typed, onPick = { browser.loadUrl(it); focus.clearFocus(); editing = false })
             }
-            BottomBar(browser, onPanel = { panel = it }, onFind = { finding = true })
+            BottomBar(browser, onPanel = {
+                if (it == Panel.Tabs) browser.captureCurrent()
+                panel = it
+            }, onFind = { finding = true })
         }
 
         browser.customView?.let { view ->
@@ -153,6 +173,7 @@ fun BrowserScreen(browser: BrowserController, updater: AppUpdater, onExit: () ->
                         Panel.Source -> SourceScreen(browser, close)
                         Panel.Cookies -> CookiesScreen(browser, close)
                         Panel.PageInfo -> PageInfoScreen(browser, close)
+                        Panel.Speed -> SpeedScreen(browser, close)
                         Panel.Settings -> SettingsScreen(browser, updater, close)
                         Panel.Bookmarks -> SitesScreen(browser, history = false, close)
                         Panel.History -> SitesScreen(browser, history = true, close)
@@ -174,9 +195,11 @@ private fun AddressBar(browser: BrowserController, editing: Boolean, onEditing: 
     val secure = browser.url.startsWith("https://")
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Private tabs get a differently coloured address bar, like Chrome's incognito.
+        val incognito = browser.current.incognito
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = if (incognito) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.weight(1f).height(44.dp),
         ) {
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -184,6 +207,7 @@ private fun AddressBar(browser: BrowserController, editing: Boolean, onEditing: 
                 when {
                     editing -> Icon(Icons.Default.Public, null, Modifier.size(18.dp))
                     browser.sslOverridden -> Icon(Icons.Default.Warning, "Certificate error", Modifier.size(18.dp), tint = CodeColors.error())
+                    incognito -> Icon(Icons.Default.VisibilityOff, "Private tab", Modifier.size(18.dp))
                     icon != null -> Image(icon.asImageBitmap(), null, Modifier.size(18.dp))
                     secure -> Icon(Icons.Default.Lock, "Secure", Modifier.size(18.dp))
                     else -> Icon(Icons.Default.Public, null, Modifier.size(18.dp))
@@ -282,6 +306,7 @@ private fun FindBar(browser: BrowserController, onClose: () -> Unit) {
 private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFind: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var devMenu by remember { mutableStateOf(false) }
+    var qr by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val desktop by browser.settings.desktopMode.flow.collectAsState()
 
@@ -314,6 +339,7 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 fun pick(action: () -> Unit) { menu = false; action() }
                 DropdownMenuItem(text = { Text("New tab") }, leadingIcon = { Icon(Icons.Default.Add, null) }, onClick = { pick { browser.newTab(null) } })
+                DropdownMenuItem(text = { Text("New private tab") }, leadingIcon = { Icon(Icons.Default.VisibilityOff, null) }, onClick = { pick { browser.newTab(null, incognito = true) } })
                 DropdownMenuItem(text = { Text("Home") }, leadingIcon = { Icon(Icons.Default.Home, null) }, onClick = { pick(browser::goHome) })
                 DropdownMenuItem(text = { Text("Find in page") }, leadingIcon = { Icon(Icons.Default.FindInPage, null) }, onClick = { pick(onFind) })
                 DropdownMenuItem(text = { Text("Share") }, leadingIcon = { Icon(Icons.Default.Share, null) }, onClick = {
@@ -322,6 +348,7 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
                         context.startActivity(Intent.createChooser(send, null))
                     }
                 })
+                DropdownMenuItem(text = { Text("QR code") }, leadingIcon = { Icon(Icons.Default.QrCode2, null) }, onClick = { pick { qr = browser.url } })
                 DropdownMenuItem(
                     text = { Text("Desktop site") },
                     leadingIcon = { Icon(Icons.Default.DesktopWindows, null) },
@@ -333,12 +360,14 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
                 DropdownMenuItem(text = { Text("View page source") }, leadingIcon = { Icon(Icons.Default.Code, null) }, onClick = { pick { onPanel(Panel.Source) } })
                 DropdownMenuItem(text = { Text("Network requests") }, leadingIcon = { Icon(Icons.Default.SwapVert, null) }, onClick = { pick { onPanel(Panel.Requests) } })
                 DropdownMenuItem(text = { Text("Cookies") }, leadingIcon = { Icon(Icons.Default.Cookie, null) }, onClick = { pick { onPanel(Panel.Cookies) } })
+                DropdownMenuItem(text = { Text("Page speed") }, leadingIcon = { Icon(Icons.Default.Speed, null) }, onClick = { pick { onPanel(Panel.Speed) } })
                 DropdownMenuItem(text = { Text("Page info") }, leadingIcon = { Icon(Icons.Default.Info, null) }, onClick = { pick { onPanel(Panel.PageInfo) } })
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("Bookmarks") }, leadingIcon = { Icon(Icons.Default.Bookmarks, null) }, onClick = { pick { onPanel(Panel.Bookmarks) } })
                 DropdownMenuItem(text = { Text("History") }, leadingIcon = { Icon(Icons.Default.History, null) }, onClick = { pick { onPanel(Panel.History) } })
                 DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { pick { onPanel(Panel.Settings) } })
             }
+            qr?.let { QrDialog(it, onDismiss = { qr = null }) }
             DropdownMenu(expanded = devMenu, onDismissRequest = { devMenu = false }) {
                 DevtoolsScript.tools.forEach { (tool, label) ->
                     DropdownMenuItem(text = { Text(label) }, onClick = { devMenu = false; browser.toggleDevtools(tool) })

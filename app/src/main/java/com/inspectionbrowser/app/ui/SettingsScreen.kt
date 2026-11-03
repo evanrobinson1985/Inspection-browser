@@ -69,6 +69,7 @@ fun SettingsScreen(browser: BrowserController, updater: AppUpdater, onBack: () -
             Toggle(s.thirdPartyCookies, "Third-party cookies", null)
             Toggle(s.blockLocation, "Block location requests", "Sites can't ask for your location; otherwise each site asks once and your answer is remembered")
             Toggle(s.darkPages, "Darken pages in dark mode", "Pages without a dark theme of their own are darkened when the phone is in dark mode")
+            Toggle(s.pullToRefresh, "Pull down to refresh", "At the top of a page; not on scrolled boxes inside it or the DevTools panel")
             val zoom by s.textZoom.flow.collectAsState()
             Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Text size: $zoom%", style = MaterialTheme.typography.bodyMedium)

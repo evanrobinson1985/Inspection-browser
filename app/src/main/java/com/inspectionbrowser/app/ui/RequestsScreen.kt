@@ -158,12 +158,12 @@ private fun RequestDetail(browser: BrowserController, r: LoggedRequest, onBack: 
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = { copy(context, r.url, "URL") }, label = { Text("Copy URL") })
                 AssistChip(onClick = {
-                    copy(context, Requests.curl(r, runCatching { android.webkit.CookieManager.getInstance().getCookie(r.url) }.getOrNull(), browser.userAgent), "cURL")
+                    copy(context, Requests.curl(r, browser.cookiesFor(r.url), browser.userAgent), "cURL")
                 }, label = { Text("Copy as cURL") })
                 AssistChip(onClick = {
                     fetching = true; fetchError = null
                     scope.launch {
-                        runCatching { Fetcher.fetch(r.url, browser.userAgent, r.method, r.headers) }
+                        runCatching { Fetcher.fetch(r.url, browser.userAgent, r.method, r.headers, browser.cookiesFor(r.url)) }
                             .onSuccess { fetched = it }.onFailure { fetchError = it.message ?: it.toString() }
                         fetching = false
                     }

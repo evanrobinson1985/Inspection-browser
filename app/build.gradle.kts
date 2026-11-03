@@ -76,4 +76,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // QR codes of the page's address.
+    implementation("com.google.zxing:core:3.5.3")
+    // Pull down to refresh around the page.
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 }

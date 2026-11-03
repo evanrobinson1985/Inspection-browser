@@ -1,6 +1,5 @@
 package com.inspectionbrowser.app.net
 
-import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Headers.Companion.toHeaders
@@ -47,13 +46,15 @@ object Fetcher {
         userAgent: String,
         method: String = "GET",
         headers: Map<String, String> = emptyMap(),
+        /** The tab's cookies for [url] (private tabs have their own). */
+        cookies: String? = null,
     ): FetchResult = withContext(Dispatchers.IO) {
         val sent = LinkedHashMap<String, String>()
         // OkHttp unzips responses itself only when it asked for the compression.
         headers.forEach { (k, v) -> if (!k.equals("Cookie", true) && !k.equals("Accept-Encoding", true)) sent[k] = v }
         if (sent.keys.none { it.equals("User-Agent", true) }) sent["User-Agent"] = userAgent
         if (sent.keys.none { it.equals("Accept", true) }) sent["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()?.takeIf { it.isNotBlank() }?.let { sent["Cookie"] = it }
+        cookies?.takeIf { it.isNotBlank() }?.let { sent["Cookie"] = it }
 
         // A body can't be replayed (WebView doesn't hand it over), so others go as GET/HEAD.
         val verb = if (method.equals("HEAD", true)) "HEAD" else "GET"

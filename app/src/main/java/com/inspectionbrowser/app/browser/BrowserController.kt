@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.Uri
 import android.net.http.SslCertificate
 import android.net.http.SslError
@@ -42,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
@@ -100,6 +102,18 @@ private data class SavedTabs(val tabs: List<SavedTab>, val current: Int)
 @Serializable
 private data class SavedTab(val url: String, val title: String = "")
 
+/** Private tabs keep cookies and storage in their own WebView profile, wiped when the last one closes. */
+private const val PRIVATE_PROFILE = "private"
+
+/**
+ * Tells the app whether a touch started on something already scrolled (an inner scroller,
+ * or the DevTools panel), so pulling down there scrolls it instead of refreshing the page.
+ */
+private const val PULL_GUARD = """(function(){if(window.top!==window||window.__ibPull||typeof __ibGesture==='undefined')return;window.__ibPull=1;
+function blocked(e){var p=e.composedPath?e.composedPath():[];for(var i=0;i<p.length;i++){var el=p[i];if(el===document||el===window)break;
+if(el.id==='eruda')return true;if(el.nodeType===1&&el.scrollTop>0)return true;}var s=document.scrollingElement;return !!(s&&s.scrollTop>0);}
+addEventListener('touchstart',function(e){try{__ibGesture.postMessage(blocked(e)?'1':'0');}catch(_){}},{capture:true,passive:true});})();"""
+
 /**
  * The browser itself: tabs, each a WebView with DevTools injected into every page and a log
  * of every request, and the state the screen shows for the current one (address, progress,
@@ -123,6 +137,8 @@ class BrowserController(
         savedTitle: String = "",
         /** The tab that opened this one (target=_blank, window.open), to go back to when it has no history. */
         val openerId: Long? = null,
+        /** No history, and cookies/storage apart from normal tabs (when this WebView supports profiles). */
+        val incognito: Boolean = false,
     ) {
         val id = tabIds.incrementAndGet()
 
@@ -152,8 +168,20 @@ class BrowserController(
         var errorCount by mutableIntStateOf(0)
             internal set
         val requests = RequestLog()
+        /** A small picture of the page for the tab list, taken when leaving the tab. */
+        var thumbnail by mutableStateOf<Bitmap?>(null)
+            internal set
+        /** The last touch started on something scrolled: pull-to-refresh leaves it alone. */
+        @Volatile var pullBlocked = false
+            private set
+
+        /** This tab's cookie jar: the private profile's for private tabs. */
+        val cookieManager: CookieManager
+            get() = if (incognito && profilesSupported) ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE).cookieManager
+            else CookieManager.getInstance()
 
         private var scriptHandler: ScriptHandler? = null
+        private var guardHandler: ScriptHandler? = null
         private var applied: List<Any?> = emptyList()
         private var installedScript: String? = null
 
@@ -178,7 +206,7 @@ class BrowserController(
                 cacheMode = if (s.disableCache.value) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
                 textZoom = s.textZoom.value
             }
-            CookieManager.getInstance().setAcceptThirdPartyCookies(wv, s.thirdPartyCookies.value)
+            cookieManager.setAcceptThirdPartyCookies(wv, s.thirdPartyCookies.value)
             if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
                 WebSettingsCompat.setAlgorithmicDarkeningAllowed(wv.settings, s.darkPages.value)
             }
@@ -198,10 +226,27 @@ class BrowserController(
         private fun injectLate(v: WebView) {
             if (documentStartSupported) return
             devtoolsScript?.let { v.evaluateJavascript(it, null) }
+            if (messagesSupported) v.evaluateJavascript(PULL_GUARD, null)
+        }
+
+        /** Draws what the tab shows now, small, for the tab list. */
+        internal fun captureThumbnail() {
+            val v = view ?: return
+            if (v.width <= 0 || v.height <= 0) return
+            runCatching {
+                val scale = 0.3f
+                val bmp = Bitmap.createBitmap((v.width * scale).toInt().coerceAtLeast(1), (v.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.RGB_565)
+                val canvas = Canvas(bmp)
+                canvas.scale(scale, scale)
+                canvas.translate(-v.scrollX.toFloat(), -v.scrollY.toFloat())
+                v.draw(canvas)
+                thumbnail = bmp
+            }
         }
 
         internal fun destroy() {
             scriptHandler?.remove()
+            guardHandler?.remove()
             view?.let { (it.parent as? ViewGroup)?.removeView(it); it.destroy() }
             view = null
         }
@@ -212,6 +257,8 @@ class BrowserController(
         }
 
         private fun createWebView(): WebView = WebView(activity).apply {
+            // A private tab's profile has to be set before the WebView does anything else.
+            if (incognito && profilesSupported) WebViewCompat.setProfile(this, PRIVATE_PROFILE)
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             with(settings) {
                 domStorageEnabled = true
@@ -231,7 +278,13 @@ class BrowserController(
             CookieManager.getInstance().setAcceptCookie(true)
             webViewClient = Client()
             webChromeClient = Chrome()
-            setDownloadListener { url, ua, disposition, mime, _ -> download(url, ua, disposition, mime) }
+            setDownloadListener { url, ua, disposition, mime, _ -> download(url, ua, disposition, mime, cookieManager.getCookie(url)) }
+            if (messagesSupported) {
+                WebViewCompat.addWebMessageListener(this, "__ibGesture", setOf("*")) { _, message, _, isMainFrame, _ ->
+                    if (isMainFrame) pullBlocked = message.data == "1"
+                }
+                if (documentStartSupported) guardHandler = WebViewCompat.addDocumentStartJavaScript(this, PULL_GUARD, setOf("*"))
+            }
             setFindListener { active, count, done ->
                 if (done && current === this@Tab) findResult = (if (count == 0) 0 else active + 1) to count
             }
@@ -316,7 +369,7 @@ class BrowserController(
                 certificate = view.certificate
                 syncNavigation(view)
                 injectLate(view)
-                library.addHistory(this@Tab.url, view.title.orEmpty())
+                if (!incognito) library.addHistory(this@Tab.url, view.title.orEmpty())
                 saveTabs()
             }
 
@@ -345,6 +398,7 @@ class BrowserController(
                 // The renderer crashed or was killed: give this tab a fresh WebView and load the page again.
                 val last = url
                 scriptHandler = null
+                guardHandler = null
                 installedScript = null
                 applied = emptyList()
                 (view.parent as? ViewGroup)?.removeView(view)
@@ -371,7 +425,7 @@ class BrowserController(
 
             // target=_blank and window.open: a new tab, linked to this one (window.opener works).
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
-                val tab = Tab(openerId = this@Tab.id)
+                val tab = Tab(openerId = this@Tab.id, incognito = incognito)
                 tabs.add((tabs.indexOf(this@Tab) + 1).coerceIn(0, tabs.size), tab)
                 (resultMsg.obj as WebView.WebViewTransport).webView = tab.webView
                 resultMsg.sendToTarget()
@@ -468,6 +522,9 @@ class BrowserController(
     val userAgent: String get() = webView.settings.userAgentString
 
     val documentStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+    private val messagesSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+    /** Without profiles (old WebView), private tabs share cookies with the others but still keep no history. */
+    val profilesSupported = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
     private var devtoolsScript: String? = null
     private var devtoolsKey: List<Any?>? = null
 
@@ -475,6 +532,8 @@ class BrowserController(
     private val json = Json { ignoreUnknownKeys = true }
 
     init {
+        // Anything a private tab left behind when the app was last closed goes now.
+        wipePrivateData()
         applySettings(reloadIfNeeded = false)
         activity.lifecycleScope.launch {
             merge(
@@ -518,8 +577,9 @@ class BrowserController(
      * Opens a tab with [input] (an address or a search; the home page when null). [background]
      * keeps the current tab showing; [fromCurrent] puts it next to the current tab, which Back returns to.
      */
-    fun newTab(input: String?, background: Boolean = false, fromCurrent: Boolean = false): Tab {
-        val tab = Tab(openerId = if (fromCurrent) current.id else null)
+    fun newTab(input: String?, background: Boolean = false, fromCurrent: Boolean = false, incognito: Boolean = fromCurrent && current.incognito): Tab {
+        val tab = Tab(openerId = if (fromCurrent) current.id else null, incognito = incognito)
+        if (incognito && !profilesSupported) toast("This WebView can't keep private cookies apart; this tab only skips history")
         val at = if (fromCurrent) tabs.indexOf(current) + 1 else tabs.size
         tabs.add(at.coerceIn(0, tabs.size), tab)
         val target = UrlInput.resolve(input ?: settings.homePage.value, UrlInput.engine(settings.searchEngine.value))
@@ -533,6 +593,7 @@ class BrowserController(
         if (tab !in tabs) return
         val previous = current
         if (previous !== tab && previous.created) {
+            previous.captureThumbnail()
             previous.webView.clearMatches()
             previous.webView.evaluateJavascript(DevtoolsScript.HIDE_IF_OPEN, null)
             previous.webView.onPause()
@@ -555,6 +616,7 @@ class BrowserController(
             wasCurrent -> select(tabs.firstOrNull { it.id == tab.openerId } ?: tabs[(index - 1).coerceAtLeast(0)])
         }
         tab.destroy()
+        if (tab.incognito && tabs.none { it.incognito }) wipePrivateData()
         saveTabs()
     }
 
@@ -563,10 +625,29 @@ class BrowserController(
         tabs.clear()
         newTab(null)
         old.forEach { it.destroy() }
+        wipePrivateData()
     }
 
+    /** Clears the private profile's cookies and storage. */
+    private fun wipePrivateData() {
+        if (!profilesSupported) return
+        runCatching {
+            val profile = ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE)
+            profile.cookieManager.removeAllCookies(null)
+            profile.webStorage.deleteAllData()
+        }
+    }
+
+    /** Keeps the current tab's picture up to date, for the tab list. */
+    fun captureCurrent() = current.captureThumbnail()
+
+    /** Whether pull-to-refresh may start now: the page is at its top and the touch wasn't on a scroller. */
+    fun canPullToRefresh(): Boolean = current.created && !webView.canScrollVertically(-1) && webView.scrollY == 0 && !current.pullBlocked
+
+    /** Private tabs are never saved. */
     fun saveTabs() {
-        val state = SavedTabs(tabs.map { SavedTab(it.url, it.title) }, tabs.indexOf(current).coerceAtLeast(0))
+        val kept = tabs.filter { !it.incognito }
+        val state = SavedTabs(kept.map { SavedTab(it.url, it.title) }, kept.indexOf(current).coerceAtLeast(0))
         prefs.edit().putString("tabs", json.encodeToString(SavedTabs.serializer(), state)).apply()
     }
 
@@ -653,17 +734,21 @@ class BrowserController(
     /** Runs [js] in the page and hands back its JSON result. */
     fun evaluate(js: String, done: (String?) -> Unit) = webView.evaluateJavascript(js, done)
 
-    fun cookies(): String? = CookieManager.getInstance().getCookie(url)
+    fun cookies(): String? = current.cookieManager.getCookie(url)
+
+    /** The cookies the current tab would send to [url] (its own jar for a private tab). */
+    fun cookiesFor(url: String): String? = runCatching { current.cookieManager.getCookie(url) }.getOrNull()
 
     fun setCookie(cookie: String, done: () -> Unit = {}) {
-        CookieManager.getInstance().setCookie(url, cookie) { CookieManager.getInstance().flush(); done() }
+        val cm = current.cookieManager
+        cm.setCookie(url, cookie) { cm.flush(); done() }
     }
 
     /** Best effort: expires cookies by name for this page's host and its parent domains and paths. */
     fun deleteCookies(names: List<String>, done: () -> Unit = {}) {
         val uri = Uri.parse(url)
         val host = uri.host ?: return
-        val cm = CookieManager.getInstance()
+        val cm = current.cookieManager
         val domains = buildList {
             add(null)
             val parts = host.split('.')
@@ -744,7 +829,7 @@ class BrowserController(
 
     // --- Downloads ---
 
-    private fun download(url: String, ua: String, disposition: String?, mime: String?) {
+    private fun download(url: String, ua: String, disposition: String?, mime: String?, cookies: String?) {
         if (!url.startsWith("http")) {
             toast("Can't download ${url.substringBefore(':')}: links; use DevTools ▸ Resources or Sources instead")
             return
@@ -754,7 +839,7 @@ class BrowserController(
             val req = DownloadManager.Request(Uri.parse(url))
                 .setMimeType(mime)
                 .addRequestHeader("User-Agent", ua)
-                .apply { CookieManager.getInstance().getCookie(url)?.let { addRequestHeader("Cookie", it) } }
+                .apply { cookies?.takeIf { it.isNotBlank() }?.let { addRequestHeader("Cookie", it) } }
                 .setTitle(name)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
@@ -763,7 +848,7 @@ class BrowserController(
     }
 
     /** Saves a long-pressed image to Downloads. */
-    fun downloadImage(url: String) = download(url, userAgent, null, null)
+    fun downloadImage(url: String) = download(url, userAgent, null, null, cookiesFor(url))
 
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_LONG).show()
 

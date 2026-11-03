@@ -81,7 +81,7 @@ fun SourceScreen(browser: BrowserController, onBack: () -> Unit) {
     val list = rememberLazyListState()
 
     LaunchedEffect(pageUrl) {
-        runCatching { Fetcher.fetch(pageUrl, browser.userAgent) }.onSuccess { raw = it }.onFailure { rawError = it.message ?: it.toString() }
+        runCatching { Fetcher.fetch(pageUrl, browser.userAgent, cookies = browser.cookiesFor(pageUrl)) }.onSuccess { raw = it }.onFailure { rawError = it.message ?: it.toString() }
     }
     LaunchedEffect(mode) {
         if (mode == SourceMode.Dom && dom == null) browser.renderedHtml { dom = it }
