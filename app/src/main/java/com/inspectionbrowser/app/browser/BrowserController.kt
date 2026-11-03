@@ -10,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.net.Uri
 import android.net.http.SslCertificate
 import android.net.http.SslError
@@ -18,6 +17,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
@@ -236,18 +236,19 @@ class BrowserController(
             if (messagesSupported) v.evaluateJavascript(PULL_GUARD, null)
         }
 
-        /** Draws what the tab shows now, small, for the tab list. */
+        /**
+         * Copies what the tab shows on screen now, small, for the tab list. PixelCopy reads the
+         * window's finished pixels, so the WebView is never asked to draw itself off-screen.
+         */
         internal fun captureThumbnail() {
             val v = view ?: return
-            if (v.width <= 0 || v.height <= 0) return
+            if (v.width <= 0 || v.height <= 0 || !v.isAttachedToWindow) return
             runCatching {
+                val at = IntArray(2).also(v::getLocationInWindow)
+                val area = android.graphics.Rect(at[0], at[1], at[0] + v.width, at[1] + v.height)
                 val scale = 0.3f
-                val bmp = Bitmap.createBitmap((v.width * scale).toInt().coerceAtLeast(1), (v.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.RGB_565)
-                val canvas = Canvas(bmp)
-                canvas.scale(scale, scale)
-                canvas.translate(-v.scrollX.toFloat(), -v.scrollY.toFloat())
-                v.draw(canvas)
-                thumbnail = bmp
+                val bmp = Bitmap.createBitmap((v.width * scale).toInt().coerceAtLeast(1), (v.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+                PixelCopy.request(activity.window, area, bmp, { result -> if (result == PixelCopy.SUCCESS) thumbnail = bmp }, main)
             }
         }
 

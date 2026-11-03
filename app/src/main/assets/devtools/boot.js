@@ -27,7 +27,8 @@
     function isOpen() { return !!(eruda._devTools && eruda._devTools._isShow); }
     window.__ibDevtools = {
       isOpen: isOpen,
-      toggle: function () { if (isOpen()) eruda.hide(); else eruda.show(); return isOpen(); },
+      // The toolbar button: closes the panel, or opens it on the Console.
+      toggle: function () { if (isOpen()) eruda.hide(); else { eruda.show(); eruda.show('console'); } return isOpen(); },
       show: function (tool) { eruda.show(); if (tool) eruda.show(tool); return true; },
       hideIfOpen: function () { if (!isOpen()) return false; eruda.hide(); return true; },
       entryButton: function (on) { if (eruda._entryBtn) on ? eruda._entryBtn.show() : eruda._entryBtn.hide(); },

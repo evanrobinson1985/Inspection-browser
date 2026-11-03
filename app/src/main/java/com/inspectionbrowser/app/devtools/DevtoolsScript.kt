@@ -12,13 +12,15 @@ import kotlinx.serialization.json.put
 object DevtoolsScript {
     private val bundles = listOf(
         "eruda", "eruda-code", "eruda-timing", "eruda-monitor", "eruda-features", "eruda-touches",
-        "eruda-orientation", "eruda-benchmark", "eruda-geolocation",
+        "eruda-orientation", "eruda-benchmark",
     )
     /** The globals the plugin bundles define, added as extra DevTools tabs. */
     private val plugins = listOf(
         "erudaCode", "erudaTiming", "erudaMonitor", "erudaFeatures", "erudaTouches",
-        "erudaOrientation", "erudaBenchmark", "erudaGeolocation",
+        "erudaOrientation", "erudaBenchmark",
     )
+    // Not eruda-geolocation: it loads its own Leaflet from unpkg into every page, which replaces a
+    // page's own `L` (breaking map pages and their plugins) and draws its map over the page.
 
     /** Eruda's built-in tools, by the name it opens them with. */
     val tools = listOf(

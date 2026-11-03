@@ -20,7 +20,7 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 - **Sources**: page HTML, scripts and styles, with line numbers
 - **Info**, **Snippets** (saved scripts to run on any page), and extra tabs: **Code** (a JS editor),
   **Timing** (Navigation and Resource Timing), **Monitor** (FPS and memory), **Features** (browser support),
-  **Touches**, **Orientation**, **Benchmark** and **Geolocation** (spoof a position)
+  **Touches**, **Orientation** and **Benchmark**
 - The 🐞 button shows a badge with the number of console errors on the page
 
 **Native inspection tools** that page scripts can't provide:
@@ -84,7 +84,7 @@ Requires JDK 17 and the Android SDK (Android Studio works out of the box).
 ./gradlew testReleaseUnitTest assembleRelease
 ```
 
-The DevTools bundles live in `app/src/main/assets/devtools/` (Eruda 3.4.3 and plugins, from npm); `boot.js` there loads them.
+The DevTools bundles live in `app/src/main/assets/devtools/` (Eruda 3.4.3 and plugins, from npm; not eruda-geolocation, which loads Leaflet into every page); `boot.js` there loads them.
 
 ## Limits
 
