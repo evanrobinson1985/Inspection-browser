@@ -31,16 +31,26 @@
       show: function (tool) { eruda.show(); if (tool) eruda.show(tool); return true; },
       hideIfOpen: function () { if (!isOpen()) return false; eruda.hide(); return true; },
       entryButton: function (on) { if (eruda._entryBtn) on ? eruda._entryBtn.show() : eruda._entryBtn.hide(); },
-      consoleText: consoleText,
-      consoleCount: function () { return consoleLogs().length; }
+      consoleText: function () { return consoleText(false); },
+      consoleCount: function () { return consoleLogs(false).length; }
     };
     addCopyAllButton();
 
     // --- Everything in the console as plain text, for copying or sharing in one go ---
 
-    function consoleLogs() {
+    // Every message, or only those the Console shows now (its All / Info / Warning / Error level and search).
+    function consoleLogs(shown) {
       var c = eruda.get('console');
-      return (c && c._logger && c._logger.logs) || [];
+      var logger = c && c._logger;
+      if (!logger) return [];
+      return (shown ? logger.displayLogs : logger.logs) || [];
+    }
+
+    function levelName() {
+      var c = eruda.get('console');
+      var level = c && c._logger && c._logger.options && c._logger.options.level;
+      if (!level || level.length !== 1) return '';
+      return { info: 'Info', warning: 'Warning', error: 'Error' }[level[0]] || '';
     }
 
     function fmt(v, depth, seen) {
@@ -96,15 +106,17 @@
     }
 
     var labels = { input: '> ', output: '< ', warn: '[warn] ', error: '[error] ', info: '[info] ', debug: '[debug] ' };
-    function consoleText() {
-      var logs = consoleLogs();
+    function consoleText(shown) {
+      var logs = consoleLogs(shown);
+      var level = shown ? levelName() : '';
       var text = logs.map(function (log) {
         var body;
         try { body = log.args && log.args.length ? line(log.args) : (log.text ? log.text() : ''); } catch (e) { body = log.text ? log.text() : ''; }
         var count = log.count > 1 ? '  (×' + log.count + ')' : '';
         return (labels[log.type] || '') + body + count;
       }).join('\n');
-      return 'Console: ' + location.href + '\n' + new Date().toString() + '\n' + logs.length + ' messages\n\n' + text + '\n';
+      return 'Console: ' + location.href + '\n' + new Date().toString() + '\n' + logs.length + (logs.length === 1 ? ' message' : ' messages') +
+        (level ? ' (' + level + ' only)' : '') + '\n\n' + text + '\n';
     }
 
     function copyText(text, done) {
@@ -124,24 +136,42 @@
       else fallback();
     }
 
-    // A "Copy all" button in the Console tab's toolbar, next to Eruda's own (one message) copy button.
+    // Copies every message the Console shows now: with "All" selected that's everything.
+    function copyShown() {
+      var n = consoleLogs(true).length;
+      var level = levelName();
+      copyText(consoleText(true), function (ok) {
+        var what = n + (level ? ' ' + level.toLowerCase() : '') + (n === 1 ? ' message' : ' messages');
+        if (eruda._devTools && eruda._devTools.notify) eruda._devTools.notify(ok ? 'Copied ' + what : 'Couldn\'t copy; use ⋮ ▸ Copy console log', { icon: ok ? 'success' : 'error' });
+      });
+    }
+
+    // A "Copy all" button in the Console tab's toolbar; Eruda's own copy icon (one tapped message)
+    // also copies everything shown when no message is selected, instead of sitting greyed out.
     function addCopyAllButton() {
       var c = eruda.get('console');
       var control = c && c._$control && (c._$control.get ? c._$control.get(0) : c._$control[0]);
       if (!control) return;
       var button = document.createElement('span');
       button.textContent = 'Copy all';
-      button.title = 'Copy every console message';
+      button.title = 'Copy every message shown (All, Info, Warning or Error)';
       button.style.cssText = 'cursor:pointer;font-size:12px;padding:0 8px;margin-left:4px;border:1px solid currentColor;border-radius:4px;opacity:.85;line-height:18px;';
-      button.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var n = consoleLogs().length;
-        copyText(consoleText(), function (ok) {
-          if (eruda._devTools && eruda._devTools.notify) eruda._devTools.notify(ok ? 'Copied ' + n + ' messages' : 'Couldn\'t copy; use ⋮ ▸ Copy console log', { icon: ok ? 'success' : 'error' });
-        });
-      });
+      button.addEventListener('click', function (e) { e.stopPropagation(); copyShown(); });
       var filter = control.querySelector('.eruda-filter');
       if (filter) control.insertBefore(button, filter); else control.appendChild(button);
+
+      control.addEventListener('click', function (e) {
+        var icon = e.target && e.target.closest && e.target.closest('.eruda-copy');
+        if (!icon || c._selectedLog) return;
+        e.stopImmediatePropagation();
+        copyShown();
+      }, true);
+      var root = control.getRootNode && control.getRootNode();
+      if (root && root !== document) {
+        var style = document.createElement('style');
+        style.textContent = '.eruda-control .eruda-copy.eruda-icon-disabled{opacity:1!important;pointer-events:auto!important;cursor:pointer}';
+        root.appendChild(style);
+      }
     }
   }
 
