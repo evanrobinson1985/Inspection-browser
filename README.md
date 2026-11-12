@@ -53,6 +53,17 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 - Certificate errors (self-signed dev servers, intercepting proxies) can be accepted page by page; user-installed CAs are trusted
 - Plain `http://` works, and `localhost`, LAN IPs and `.local` names typed in the address bar open over http
 
+## Test page
+
+⋮ ▸ **Open test page** opens a page built into the app (served at a real https address, works offline) with
+something to try for every DevTools tab and browser feature: console messages of every kind, network requests that
+succeed, fail, are slow or big, storage and cookies, DOM and Shadow DOM changes, a layout shift for Page speed, links
+that open new tabs, long-press, downloads, uploads, location, camera, fullscreen, dialogs and pull-to-refresh areas.
+Each section says what you should see. The files are in `app/src/main/assets/testsite/`.
+
+The same site can be published to GitHub Pages (https://evanrobinson1985.github.io/Inspection-browser/) by the
+**Test site** workflow from `main`, once Settings ▸ Pages ▸ Source is set to "GitHub Actions".
+
 ## Browser
 
 - Tabs: the tab button shows how many are open and lists them to switch or close; ⋮ ▸ New tab; long-press a link or

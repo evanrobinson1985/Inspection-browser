@@ -63,6 +63,9 @@ object DevtoolsScript {
         "(function(){if(window.__ibPluginsLoaded||!window.__ibDevtools||!__ibDevtools.addPlugins)return;window.__ibPluginsLoaded=true;" +
             "var define,module,exports;\n" + code(context).plugins + "\n;__ibDevtools.addPlugins();})();"
 
+    /** Reads the scripts ahead of time, off the main thread. */
+    fun warm(context: Context) { code(context) }
+
     /** Gathers everything the DevTools tabs show (see report.js); answers one JSON string. */
     fun report(context: Context): String = code(context).report
 

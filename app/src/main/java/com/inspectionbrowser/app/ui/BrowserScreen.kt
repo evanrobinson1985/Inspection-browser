@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -105,6 +106,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.inspectionbrowser.app.browser.BrowserController
 import com.inspectionbrowser.app.browser.PageAsk
+import com.inspectionbrowser.app.browser.TestSite
 import com.inspectionbrowser.app.browser.UrlInput
 import com.inspectionbrowser.app.devtools.DevtoolsScript
 import com.inspectionbrowser.app.update.AppUpdater
@@ -357,6 +359,7 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
                 DropdownMenuItem(text = { Text("New tab") }, leadingIcon = { Icon(Icons.Default.Add, null) }, onClick = { pick { browser.newTab(null) } })
                 DropdownMenuItem(text = { Text("New private tab") }, leadingIcon = { Icon(Icons.Default.VisibilityOff, null) }, onClick = { pick { browser.newTab(null, incognito = true) } })
                 DropdownMenuItem(text = { Text("Home") }, leadingIcon = { Icon(Icons.Default.Home, null) }, onClick = { pick(browser::goHome) })
+                DropdownMenuItem(text = { Text("Open test page") }, leadingIcon = { Icon(Icons.Default.Science, null) }, onClick = { pick { browser.newTab(TestSite.URL) } })
                 DropdownMenuItem(text = { Text("Find in page") }, leadingIcon = { Icon(Icons.Default.FindInPage, null) }, onClick = { pick(onFind) })
                 DropdownMenuItem(text = { Text("Share") }, leadingIcon = { Icon(Icons.Default.Share, null) }, onClick = {
                     pick {

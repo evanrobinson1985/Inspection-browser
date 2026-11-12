@@ -20,7 +20,12 @@ class Library(context: Context) {
     private fun load(key: String): List<Site> =
         runCatching { json.decodeFromString(serializer, prefs.getString(key, null) ?: "[]") }.getOrDefault(emptyList())
 
-    private fun save(key: String, list: List<Site>) = prefs.edit().putString(key, json.encodeToString(serializer, list)).apply()
+    /** Writes in the background (in order), so saving history never holds up a page load. */
+    private val writer = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private fun save(key: String, list: List<Site>) = writer.execute {
+        prefs.edit().putString(key, json.encodeToString(serializer, list)).apply()
+    }
 
     private val _bookmarks = MutableStateFlow(load("bookmarks"))
     val bookmarks: StateFlow<List<Site>> = _bookmarks.asStateFlow()

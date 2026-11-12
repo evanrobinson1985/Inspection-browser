@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" width="1200" height="500">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2433"/><stop offset="1" stop-color="#2f4a6e"/></linearGradient></defs>
+  <rect width="1200" height="500" fill="url(#g)"/>
+  <path d="M0 0h1200v60c-60 30-120 10-180 50s-90 80-150 60-80-70-150-60-100 70-170 70-90-60-160-50S260 160 200 130 80 90 0 110z" fill="#0e131b"/>
+  <path d="M120 60l20 120 20-120zM380 70l14 90 14-90zM700 80l18 140 18-140zM980 60l12 80 12-80z" fill="#3a4a63"/>
+  <text x="600" y="330" font-family="system-ui,sans-serif" font-size="56" fill="#e6e8ee" text-anchor="middle">Largest contentful paint</text>
+  <text x="600" y="390" font-family="system-ui,sans-serif" font-size="28" fill="#9aa3b2" text-anchor="middle">a big picture for ⋮ ▸ Page speed</text>
+</svg>

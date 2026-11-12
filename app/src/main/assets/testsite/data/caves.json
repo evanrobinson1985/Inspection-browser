@@ -1,0 +1,8 @@
+{
+  "source": "Inspection Browser test page (made-up data)",
+  "caves": [
+    { "id": 1, "name": "Ginnie Springs", "county": "Gilchrist", "depthM": 30 },
+    { "id": 2, "name": "Peacock Springs", "county": "Suwannee", "depthM": 53 },
+    { "id": 3, "name": "Devil's Eye", "county": "Gilchrist", "depthM": 38 }
+  ]
+}

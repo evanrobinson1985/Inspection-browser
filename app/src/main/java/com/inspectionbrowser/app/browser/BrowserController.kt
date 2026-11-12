@@ -47,6 +47,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.inspectionbrowser.app.data.Library
@@ -342,7 +343,7 @@ class BrowserController(
                     if (entry.mainFrame && !entry.redirect && !settings.preserveLog.value) requests.clear()
                     requests.add(entry)
                 }
-                return null
+                return if (request.url.host == WebViewAssetLoader.DEFAULT_DOMAIN) TestSite.serve(assetLoader, request.url) else null
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -540,6 +541,8 @@ class BrowserController(
     val userAgent: String get() = webView.settings.userAgentString
 
     val documentStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+    /** Serves the built-in test site (assets/testsite) at a real https address. */
+    private val assetLoader = TestSite.loader(activity)
     private val messagesSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     /** Without profiles (old WebView), private tabs share cookies with the others but still keep no history. */
     val profilesSupported = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
@@ -981,7 +984,15 @@ class BrowserController(
                 .apply { cookies?.takeIf { it.isNotBlank() }?.let { addRequestHeader("Cookie", it) } }
                 .setTitle(name)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+                .apply {
+                    // Android 8 and 9 need a storage permission for the public Downloads folder;
+                    // without it, use the app's own Downloads folder.
+                    if (android.os.Build.VERSION.SDK_INT >= 29 || granted(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                        setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+                    } else {
+                        setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, name)
+                    }
+                }
             activity.getSystemService(DownloadManager::class.java).enqueue(req)
         }.onSuccess { toast("Downloading $name") }.onFailure { toast("Couldn't download: ${it.message}") }
     }

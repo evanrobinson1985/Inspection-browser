@@ -1,0 +1,2 @@
+This file was downloaded from the Inspection Browser test page.
+If you can read it in your Downloads folder, downloads work.

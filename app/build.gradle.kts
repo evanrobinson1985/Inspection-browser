@@ -32,7 +32,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinks and optimises the libraries (Compose most of all) and drops unused
+            // resources; the app's own code is kept as written (see proguard-rules.pro).
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -70,6 +74,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    // Installs the libraries' baseline profiles (Compose's startup and scrolling code compiled
+    // ahead of time) for APKs installed outside the Play Store, which otherwise start slower.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // Document-start scripts (DevTools before the page's own code), dark pages.
     implementation("androidx.webkit:webkit:1.12.1")
 

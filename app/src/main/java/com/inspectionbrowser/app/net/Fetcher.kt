@@ -29,6 +29,9 @@ data class FetchResult(
 object Fetcher {
     const val MAX_TEXT = 4 * 1024 * 1024
 
+    /** Answers for addresses only the app can serve (its built-in test site); set by the app. */
+    @Volatile var local: ((String) -> Pair<String?, ByteArray>?)? = null
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true).followSslRedirects(true)
@@ -56,6 +59,14 @@ object Fetcher {
         if (sent.keys.none { it.equals("Accept", true) }) sent["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         cookies?.takeIf { it.isNotBlank() }?.let { sent["Cookie"] = it }
 
+        local?.invoke(url)?.let { (type, bytes) ->
+            val text = if (isText(type)) String(bytes, Charsets.UTF_8) else null
+            return@withContext FetchResult(
+                url = url, finalUrl = url, code = 200, message = "OK", protocol = "app asset", requestHeaders = sent.toList(),
+                headers = listOfNotNull(type?.let { "Content-Type" to it }), contentType = type, body = text,
+                bytes = bytes.size.toLong(), truncated = false, millis = 0, redirects = emptyList(),
+            )
+        }
         // A body can't be replayed (WebView doesn't hand it over), so others go as GET/HEAD.
         val verb = if (method.equals("HEAD", true)) "HEAD" else "GET"
         val request = Request.Builder().url(url).headers(sent.toHeaders()).method(verb, null).build()

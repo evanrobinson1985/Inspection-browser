@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Inspection Browser test page</title>
+  <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* An inline stylesheet, so Sources and Resources show both kinds. */
+    .inline-styled { outline: 2px dashed var(--accent); }
+  </style>
+  <script>
+    // Runs before the body: DevTools should catch these (they load before the page's scripts).
+    console.log('[early] Inline head script ran at', new Date().toISOString());
+    window.__testStart = performance.now();
+  </script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <h1>Inspection Browser test page</h1>
+    <p>Each section tries one part of the browser. Tap the buttons, then check what it says under <b>Check</b>.
+      Open DevTools with 🐞, the request list with ⇅, and the rest from ⋮.</p>
+    <nav class="toc">
+      <a href="#info">Info</a><a href="#console">Console</a><a href="#network">Network</a><a href="#resources">Resources</a>
+      <a href="#elements">Elements</a><a href="#speed">Page speed</a><a href="#tabs">Tabs &amp; links</a>
+      <a href="#features">Features</a><a href="#pull">Pull to refresh</a><a href="#share">Share / save</a>
+    </nav>
+  </header>
+
+  <section id="info" class="card">
+    <h2>1 · Info</h2>
+    <dl id="facts" class="facts"></dl>
+    <p class="check"><b>Check:</b> ⋮ ▸ Page info and DevTools ▸ Info show the same user agent and viewport.
+      Turn on ⋮ ▸ Desktop site: "Looks like" switches to desktop and the page reloads.</p>
+  </section>
+
+  <section id="console" class="card">
+    <h2>2 · Console</h2>
+    <div class="buttons">
+      <button data-run="levels">All levels</button>
+      <button data-run="objects">Objects &amp; arrays</button>
+      <button data-run="circular">Circular object</button>
+      <button data-run="styled">%c styled</button>
+      <button data-run="format">%s %d format</button>
+      <button data-run="table">console.table</button>
+      <button data-run="group">Groups</button>
+      <button data-run="timing">time / count / assert</button>
+      <button data-run="element">Log an element</button>
+      <button data-run="uncaught" class="bad">Throw uncaught error</button>
+      <button data-run="rejection" class="bad">Unhandled rejection</button>
+      <button data-run="flood">Flood 500 messages</button>
+      <button data-run="ticker" id="ticker">Start a log every second</button>
+      <button data-run="clearConsole">console.clear()</button>
+    </div>
+    <p class="check"><b>Check:</b> the 🐞 badge counts errors. In the Console, switch All / Info / Warning / Error: messages
+      show straight away, without scrolling. <b>Copy all</b> copies what's shown; ⋮ ▸ Save console log (.txt) saves it all.
+      After "Flood", the console should stay smooth.</p>
+  </section>
+
+  <section id="network" class="card">
+    <h2>3 · Network</h2>
+    <div class="buttons">
+      <button data-run="getJson">GET JSON (this site)</button>
+      <button data-run="get404" class="bad">GET a missing file (404)</button>
+      <button data-run="postJson">POST JSON (httpbin.org)</button>
+      <button data-run="xhr">XMLHttpRequest</button>
+      <button data-run="slow">Slow request (3 s)</button>
+      <button data-run="status500" class="bad">Server error (500)</button>
+      <button data-run="big">Large response (~400 KB)</button>
+      <button data-run="headers">Custom headers</button>
+      <button data-run="dnsFail" class="bad">Unknown host</button>
+      <button data-run="cors" class="bad">CORS blocked</button>
+      <button data-run="image">Load an image</button>
+      <button data-run="beacon">sendBeacon</button>
+    </div>
+    <pre id="netOut" class="out">Results appear here.</pre>
+    <p class="check"><b>Check:</b> DevTools ▸ Network lists the fetch/XHR calls with headers and bodies.
+      ⇅ lists <i>every</i> request (also images, CSS, JS); failed ones are red. Tap one ▸ Copy as cURL, or Fetch response.
+      The httpbin.org ones need internet.</p>
+  </section>
+
+  <section id="resources" class="card">
+    <h2>4 · Resources</h2>
+    <div class="buttons">
+      <button data-run="setStorage">Set local &amp; session storage</button>
+      <button data-run="clearStorage">Clear storage</button>
+      <button data-run="setCookie">Set a cookie</button>
+      <button data-run="clearCookies">Delete page cookies</button>
+      <button data-run="indexedDb">Write IndexedDB</button>
+    </div>
+    <pre id="resOut" class="out"></pre>
+    <p class="check"><b>Check:</b> DevTools ▸ Resources shows the storage keys and cookies; ⋮ ▸ Cookies shows the cookies too
+      (and lets you delete them). The IndexedDB database "testDb" appears in DevTools ▸ Resources.</p>
+  </section>
+
+  <section id="elements" class="card">
+    <h2>5 · Elements</h2>
+    <div class="buttons">
+      <button data-run="addNode">Add an element</button>
+      <button data-run="removeNode">Remove one</button>
+      <button data-run="toggleClass">Toggle a class</button>
+      <button data-run="shadow">Add a Shadow DOM widget</button>
+    </div>
+    <ul id="list" class="list inline-styled" data-test="list"><li>First item</li></ul>
+    <div id="shadowHost"></div>
+    <iframe id="frame" src="frame.html" title="A test iframe" class="frame"></iframe>
+    <p class="check"><b>Check:</b> DevTools ▸ Elements shows the list change live; pick an element to see its styles.
+      ⋮ ▸ View page source ▸ Live DOM shows the added items; Server source doesn't.</p>
+  </section>
+
+  <section id="speed" class="card">
+    <h2>6 · Page speed</h2>
+    <div class="buttons">
+      <button data-run="shift">Cause a layout shift</button>
+      <button data-run="busy">Block the page for 1 s</button>
+    </div>
+    <div id="shiftArea"></div>
+    <img src="img/hero.svg" alt="A large picture for Largest Contentful Paint" class="hero" width="1200" height="500">
+    <p class="check"><b>Check:</b> ⋮ ▸ Page speed: after "Cause a layout shift" and ↻, Layout shift goes up (amber or red).
+      DevTools ▸ Monitor (on first open) shows the 1 s freeze.</p>
+  </section>
+
+  <section id="tabs" class="card">
+    <h2>7 · Tabs &amp; links</h2>
+    <p class="links">
+      <a href="popup.html" target="_blank">Link with target=_blank</a>
+      <button data-run="windowOpen">window.open()</button>
+      <a href="popup.html?long-press" id="longPress">Long-press this link</a>
+    </p>
+    <p><img src="img/icon.svg" alt="Long-press this image" width="96" height="96" class="press"> ← long-press the image</p>
+    <p class="links">
+      <a href="mailto:test@example.com?subject=Inspection%20Browser">mailto: link</a>
+      <a href="tel:+15555550100">tel: link</a>
+      <a href="https://example.com/">Leave the site (example.com)</a>
+    </p>
+    <p class="check"><b>Check:</b> target=_blank and window.open open a new tab; Back there closes it and returns here.
+      Long-press: open in new / background / private tab, copy, share. mailto and tel open their apps.</p>
+  </section>
+
+  <section id="features" class="card">
+    <h2>8 · Browser features</h2>
+    <div class="buttons">
+      <button data-run="location">Ask for location</button>
+      <button data-run="camera">Ask for camera &amp; mic</button>
+      <button data-run="fullscreen">Fullscreen</button>
+      <button data-run="dialogs">alert / confirm / prompt</button>
+      <button data-run="clipboard">Copy text (clipboard API)</button>
+      <button data-run="vibrate">Vibrate</button>
+    </div>
+    <label class="file">Upload files: <input type="file" id="upload" multiple></label>
+    <p class="links"><a href="download.txt" download>Download a text file</a></p>
+    <video id="video" class="video" playsinline muted hidden></video>
+    <pre id="featOut" class="out"></pre>
+    <p class="find">Find in page: try searching for <mark>stalactite</mark>; it appears here and once more at the bottom.</p>
+    <p class="check"><b>Check:</b> location and camera each ask once (Block is remembered). The download lands in Downloads.
+      Fullscreen fills the screen; Back leaves it.</p>
+  </section>
+
+  <section id="pull" class="card">
+    <h2>9 · Pull to refresh</h2>
+    <div class="scroller" id="scroller"></div>
+    <canvas id="pad" class="pad" width="600" height="300" aria-label="Drawing pad"></canvas>
+    <p class="check"><b>Check:</b> at the top of the page, pulling down reloads it. Scroll the box above down a little, then
+      drag it back up: it scrolls, no reload. Drawing on the pad (it handles touches itself) never reloads.</p>
+  </section>
+
+  <section id="share" class="card">
+    <h2>10 · Share / save</h2>
+    <p>Use the other sections first, then try ⋮ ▸ Share everything: one file with Info, Console, Elements, Network,
+      Resources and Sources (including <code>app.js</code> and <code>style.css</code>). View page source ▸ 💾 saves the source as .txt.</p>
+  </section>
+
+  <footer class="foot">Built into Inspection Browser · works offline · stalactite</footer>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Opened in a new tab</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+  <section class="card">
+    <h2>Opened in a new tab</h2>
+    <p id="how"></p>
+    <p class="check"><b>Check:</b> the tab count went up. Press Back: this tab closes and you're back on the test page.</p>
+    <button onclick="window.close()">window.close()</button>
+  </section>
+  <script>
+    document.getElementById('how').textContent = 'Address: ' + location.href + ' · window.opener is ' + (window.opener ? 'set' : 'not set');
+    console.log('[popup] opened', location.search, 'opener:', !!window.opener);
+  </script>
+</body>
+</html>
