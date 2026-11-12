@@ -30,7 +30,7 @@ object DevtoolsScript {
         "resources" to "Resources (storage, cookies)", "sources" to "Sources", "info" to "Info", "snippets" to "Snippets",
     )
 
-    private class Code(val boot: String, val eruda: String, val plugins: String)
+    private class Code(val boot: String, val eruda: String, val plugins: String, val report: String)
 
     @Volatile private var code: Code? = null
 
@@ -38,7 +38,7 @@ object DevtoolsScript {
         code ?: run {
             val assets = context.applicationContext.assets
             fun read(name: String) = assets.open("devtools/$name").bufferedReader().use { it.readText() }
-            Code(read("boot.js"), read("eruda.js"), pluginBundles.joinToString("\n;\n") { read("$it.js") }).also { code = it }
+            Code(read("boot.js"), read("eruda.js"), pluginBundles.joinToString("\n;\n") { read("$it.js") }, read("report.js")).also { code = it }
         }
     }
 
@@ -62,6 +62,9 @@ object DevtoolsScript {
     fun plugins(context: Context): String =
         "(function(){if(window.__ibPluginsLoaded||!window.__ibDevtools||!__ibDevtools.addPlugins)return;window.__ibPluginsLoaded=true;" +
             "var define,module,exports;\n" + code(context).plugins + "\n;__ibDevtools.addPlugins();})();"
+
+    /** Gathers everything the DevTools tabs show (see report.js); answers one JSON string. */
+    fun report(context: Context): String = code(context).report
 
     /** Whether the page still needs the plugin tabs. */
     const val NEEDS_PLUGINS = "(function(){return !!(window.__ibDevtools&&__ibDevtools.addPlugins&&!window.__ibPluginsLoaded);})()"

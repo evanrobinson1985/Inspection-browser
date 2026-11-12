@@ -1,9 +1,6 @@
 package com.inspectionbrowser.app.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +23,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.inspectionbrowser.app.data.TextFiles
 
 /** A panel's title row: back arrow, title and actions. */
 @Composable
@@ -61,10 +59,8 @@ fun KeyValue(name: String, value: String, mono: Boolean = true) {
     }
 }
 
-fun copy(context: Context, text: String, label: String = "Text") {
-    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(label, text))
-    Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
-}
+/** Copies safely: text too big for the clipboard copies its first part and says to save it instead. */
+fun copy(context: Context, text: String, label: String = "Text") = TextFiles.copy(context, text, label)
 
 fun formatBytes(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"

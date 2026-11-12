@@ -4,8 +4,6 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -53,19 +51,31 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.inspectionbrowser.app.data.Library
 import com.inspectionbrowser.app.data.Settings
+import com.inspectionbrowser.app.data.TextFiles
+import com.inspectionbrowser.app.devtools.DevtoolsReport
 import com.inspectionbrowser.app.devtools.DevtoolsScript
+import com.inspectionbrowser.app.devtools.NativeDump
+import com.inspectionbrowser.app.devtools.SourceFile
+import com.inspectionbrowser.app.net.Fetcher
 import com.inspectionbrowser.app.net.LoggedRequest
 import com.inspectionbrowser.app.net.Requests
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 /** The requests WebView reported, newest last. Only touched on the main thread. */
 class RequestLog {
@@ -762,30 +772,102 @@ class BrowserController(
 
     private fun messageCount(text: String) = text.lineSequence().drop(2).firstOrNull()?.substringBefore(' ')?.toIntOrNull() ?: 0
 
-    /** Copies every console message at once. Very long logs keep their newest part (the clipboard has a size limit). */
+    /** Copies every console message at once (a log too big for the clipboard says to save it instead). */
     fun copyConsole() = consoleText { text ->
         if (text == null) { noConsole(); return@consoleText }
-        val clip = if (text.length <= MAX_CLIP) text else "… older messages cut; use Share console log for all of it\n" + text.takeLast(MAX_CLIP)
-        activity.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Console log", clip))
-        toast("Copied ${messageCount(text)} console messages")
+        TextFiles.copy(activity, text, "Console log (${messageCount(text)} messages)")
+    }
+
+    /** Saves every console message as a .txt file in Downloads. */
+    fun saveConsole() = consoleText { text ->
+        if (text == null) { noConsole(); return@consoleText }
+        TextFiles.save(activity, TextFiles.fileName("console", url), text)
     }
 
     /** Shares every console message as a text file (no size limit), e.g. to email or save it. */
     fun shareConsole() = consoleText { text ->
         if (text == null) { noConsole(); return@consoleText }
+        shareTextFile("console", text, "Console log: $url", "Share console log")
+    }
+
+    /** Shares [text] as a .txt file named after the page, through the app's file provider. */
+    private fun shareTextFile(kind: String, text: String, subject: String, chooserTitle: String) {
         runCatching {
             val dir = File(activity.cacheDir, "shared").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
-            val stamp = SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())
-            val host = Uri.parse(url).host?.replace(Regex("[^A-Za-z0-9.-]"), "") ?: "page"
-            val file = File(dir, "console-$host-$stamp.txt").apply { writeText(text) }
+            val file = File(dir, TextFiles.fileName(kind, url)).apply { writeText(text) }
             val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
             val send = Intent(Intent.ACTION_SEND).setType("text/plain")
                 .putExtra(Intent.EXTRA_STREAM, uri)
-                .putExtra(Intent.EXTRA_SUBJECT, "Console log: $url")
+                .putExtra(Intent.EXTRA_SUBJECT, subject)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            activity.startActivity(Intent.createChooser(send, "Share console log"))
-        }.onFailure { toast("Couldn't share the console log: ${it.message}") }
+            activity.startActivity(Intent.createChooser(send, chooserTitle))
+        }.onFailure { toast("Couldn't share it: ${it.message}") }
+    }
+
+    // --- Everything the DevTools show, in one report ---
+
+    private var collecting = false
+
+    /** Shares the whole report as a text file, however big. */
+    fun shareEverything() = collectEverything { text -> shareTextFile("devtools", text, "DevTools report: $url", "Share everything") }
+
+    /**
+     * Gathers Console, Elements, Network, Resources, Sources and Info for the current page: the
+     * page reports what it can see, and the app adds every request, all cookies, the server's
+     * HTML and the contents of each script and stylesheet file.
+     */
+    private fun collectEverything(done: (String) -> Unit) {
+        if (collecting) { toast("Still collecting…"); return }
+        collecting = true
+        val tab = current
+        val wv = tab.webView
+        val pageUrl = tab.url
+        val ua = wv.settings.userAgentString
+        val requests = tab.requests.items.toList()
+        val cert = tab.certificate?.let { "HTTPS; issued to ${it.issuedTo.dName}; by ${it.issuedBy.dName}; valid ${it.validNotBeforeDate} – ${it.validNotAfterDate}" }
+        val jar = tab.cookieManager
+        toast("Collecting everything from this page…")
+        activity.lifecycleScope.launch {
+            try {
+                val raw = suspendCoroutine { c -> wv.evaluateJavascript(DevtoolsScript.report(activity)) { c.resume(it) } }
+                val page = DevtoolsReport.parsePage(raw)
+                val cookieFor = { u: String -> runCatching { jar.getCookie(u) }.getOrNull() }
+                val server = runCatching { Fetcher.fetch(pageUrl, ua, cookies = cookieFor(pageUrl)) }
+                val gate = Semaphore(6)
+                suspend fun fill(files: List<SourceFile>): List<SourceFile> = coroutineScope {
+                    files.mapIndexed { i, f ->
+                        async {
+                            val u = f.url ?: return@async f
+                            if (!u.startsWith("http")) return@async f.copy(note = "not a web address")
+                            if (i >= MAX_SOURCE_FILES) return@async f.copy(note = "not fetched: more than $MAX_SOURCE_FILES files")
+                            gate.withPermit {
+                                runCatching { Fetcher.fetch(u, ua, cookies = cookieFor(u)) }.fold(
+                                    { r -> f.copy(content = r.body, note = "${r.code} ${r.message}, ${r.bytes} bytes" + if (r.truncated) ", cut" else "") },
+                                    { e -> f.copy(note = "couldn't fetch: ${e.message}") },
+                                )
+                            }
+                        }
+                    }.awaitAll()
+                }
+                val fullPage = if (page == null) null else page.copy(scripts = fill(page.scripts), styles = fill(page.styles))
+                val native = NativeDump(
+                    userAgent = ua,
+                    webView = runCatching { WebViewCompat.getCurrentWebViewPackage(activity)?.let { "${it.packageName} ${it.versionName}" } }.getOrNull(),
+                    certificate = cert,
+                    cookies = Requests.parseCookies(cookieFor(pageUrl)),
+                    requests = requests,
+                    serverSource = server.fold({ SourceFile(pageUrl, it.body) }, { SourceFile(pageUrl, null, "couldn't fetch: ${it.message}") }),
+                    serverStatus = server.getOrNull()?.let { "${it.code} ${it.message}, ${it.contentType ?: "no content type"}" },
+                )
+                val text = withContext(Dispatchers.Default) { DevtoolsReport.format(fullPage, native, pageUrl, Date().toString()) }
+                done(text)
+            } catch (e: Exception) {
+                toast("Couldn't collect everything: ${e.message}")
+            } finally {
+                collecting = false
+            }
+        }
     }
 
     /** Runs [js] in the page and hands back its JSON result. */
@@ -914,7 +996,7 @@ class BrowserController(
     fun destroy() = tabs.forEach { it.destroy() }
 
     private companion object {
-        /** Characters; Android's clipboard fails on much more than ~1 MB. */
-        const val MAX_CLIP = 400_000
+        /** Script and stylesheet files fetched for the report, at most. */
+        const val MAX_SOURCE_FILES = 80
     }
 }

@@ -181,7 +181,7 @@
       var level = levelName();
       copyText(consoleText(true), function (ok) {
         var what = n + (level ? ' ' + level.toLowerCase() : '') + (n === 1 ? ' message' : ' messages');
-        if (eruda._devTools && eruda._devTools.notify) eruda._devTools.notify(ok ? 'Copied ' + what : 'Couldn\'t copy; use ⋮ ▸ Copy console log', { icon: ok ? 'success' : 'error' });
+        if (eruda._devTools && eruda._devTools.notify) eruda._devTools.notify(ok ? 'Copied ' + what : 'Couldn\'t copy; use ⋮ ▸ Save console log (.txt)', { icon: ok ? 'success' : 'error' });
       });
     }
 

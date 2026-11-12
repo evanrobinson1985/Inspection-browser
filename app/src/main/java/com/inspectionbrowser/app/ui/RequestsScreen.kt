@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.inspectionbrowser.app.browser.BrowserController
+import com.inspectionbrowser.app.data.TextFiles
 import com.inspectionbrowser.app.net.FetchResult
 import com.inspectionbrowser.app.net.Fetcher
 import com.inspectionbrowser.app.net.LoggedRequest
@@ -218,6 +219,7 @@ fun ResponseSection(f: FetchResult) {
         SectionTitle("Body")
         Row(Modifier.padding(horizontal = 12.dp)) {
             AssistChip(onClick = { copy(context, body, "Body") }, label = { Text("Copy body") })
+            AssistChip(onClick = { TextFiles.save(context, TextFiles.fileName("response", f.url), body) }, label = { Text("Save as .txt") }, modifier = Modifier.padding(start = 8.dp))
         }
         SelectionContainer {
             Text(

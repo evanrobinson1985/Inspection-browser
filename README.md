@@ -13,7 +13,7 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 - **Console**: every log, warning and uncaught error from page start, plus a JavaScript prompt that runs in the page; **Copy all** in its
   toolbar copies every message shown at once as text: with **All**
   selected that's everything, with Error / Warning / Info just those. ⋮ ▸ Copy console log always copies everything.
-  Levels, objects written out and error stack traces are included. ⋮ ▸ Share console log sends the whole log as a text file
+  Levels, objects written out and error stack traces are included. ⋮ ▸ Share console log sends the whole log as a text file, and ⋮ ▸ Save console log (.txt) saves it to Downloads
 - **Elements**: the live DOM tree, element picker, computed styles, box model, attributes and event listeners
 - **Network**: fetch / XHR with headers, timing and response bodies
 - **Resources**: localStorage, sessionStorage, cookies, scripts, stylesheets, iframes, images
@@ -31,6 +31,12 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 - **View page source**: the source as the server sent it (re-fetched with the page's cookies and user agent),
   the **live DOM** after scripts ran, or the response headers, highlighted, searchable, wrap or scroll, copy and share
 - **Cookies**: all of the site's cookies, *including HttpOnly ones*, with add and delete
+- **Share everything** (⋮ menu): one text file with every DevTools tab for the page: Info, the whole Console, the live DOM
+  (Elements), every request plus fetch/XHR headers and bodies (Network), all cookies including HttpOnly, local and session
+  storage, scripts, stylesheets, iframes and images (Resources), and the server's HTML plus the full contents of every
+  script and stylesheet (Sources)
+- **Save as .txt** wherever text can be too big for the clipboard (console log, page source, response bodies); copying
+  something too big copies its first part and says so
 - **Page speed** (⋮ ▸ Page speed): server response, first and largest contentful paint, layout shift, load time,
   page weight and request count, rated against the usual web-vitals thresholds; downloads by type, and the largest
   and slowest files

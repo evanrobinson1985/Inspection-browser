@@ -45,10 +45,12 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -373,6 +375,8 @@ private fun BottomBar(browser: BrowserController, onPanel: (Panel) -> Unit, onFi
                 DropdownMenuItem(text = { Text("DevTools…") }, leadingIcon = { Icon(Icons.Default.Terminal, null) }, onClick = { pick { devMenu = true } })
                 DropdownMenuItem(text = { Text("Copy console log") }, leadingIcon = { Icon(Icons.Default.ContentCopy, null) }, onClick = { pick(browser::copyConsole) })
                 DropdownMenuItem(text = { Text("Share console log") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, null) }, onClick = { pick(browser::shareConsole) })
+                DropdownMenuItem(text = { Text("Save console log (.txt)") }, leadingIcon = { Icon(Icons.Default.Save, null) }, onClick = { pick(browser::saveConsole) })
+                DropdownMenuItem(text = { Text("Share everything") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, null) }, onClick = { pick(browser::shareEverything) })
                 DropdownMenuItem(text = { Text("View page source") }, leadingIcon = { Icon(Icons.Default.Code, null) }, onClick = { pick { onPanel(Panel.Source) } })
                 DropdownMenuItem(text = { Text("Network requests") }, leadingIcon = { Icon(Icons.Default.SwapVert, null) }, onClick = { pick { onPanel(Panel.Requests) } })
                 DropdownMenuItem(text = { Text("Cookies") }, leadingIcon = { Icon(Icons.Default.Cookie, null) }, onClick = { pick { onPanel(Panel.Cookies) } })

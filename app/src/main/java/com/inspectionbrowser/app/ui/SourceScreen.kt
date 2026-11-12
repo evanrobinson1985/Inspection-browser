@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.WrapText
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inspectionbrowser.app.browser.BrowserController
+import com.inspectionbrowser.app.data.TextFiles
 import com.inspectionbrowser.app.net.FetchResult
 import com.inspectionbrowser.app.net.Fetcher
 import com.inspectionbrowser.app.source.Highlighter
@@ -110,6 +112,9 @@ fun SourceScreen(browser: BrowserController, onBack: () -> Unit) {
             IconButton(onClick = { searching = !searching }) { Icon(Icons.Default.Search, "Search") }
             IconToggleButton(checked = wrap, onCheckedChange = { wrap = it }) { Icon(Icons.AutoMirrored.Filled.WrapText, "Wrap lines") }
             IconButton(onClick = { text?.let { copy(context, it, "Source") } }) { Icon(Icons.Default.ContentCopy, "Copy") }
+            IconButton(onClick = {
+                text?.let { TextFiles.save(context, TextFiles.fileName(if (mode == SourceMode.Dom) "dom" else "source", pageUrl), it) }
+            }) { Icon(Icons.Default.Save, "Save as .txt") }
             IconButton(onClick = {
                 text?.let {
                     // Very large pages are cut so the share sheet's limits aren't hit.
