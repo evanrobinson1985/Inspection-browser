@@ -49,7 +49,7 @@ class DevtoolsReportTest {
         assertTrue("every section, in order: $order", order.all { it >= 0 } && order == order.sorted())
         listOf(
             "User agent sent: UA/1", "Device: screen · 412 * 915", "[warn] careful", "<h1>Caves</h1>",
-            "GET http://localhost/  [Doc] ok", "#1 POST http://localhost/api/caves", "{\"county\":\"Citrus\"}", "  x-total: 2",
+            "+0 ms  GET http://localhost/  [Doc] ok", "#1 POST http://localhost/api/caves", "{\"county\":\"Citrus\"}", "  x-total: 2",
             "session: secret", "token: abc", "<html>as sent</html>", "--- Script 1: http://localhost/app.js ---",
             "(200 OK, 12 bytes)", "window.APP=1", "--- Script 2: inline ---", "console.log(1)",
             "--- Stylesheet 1: http://localhost/site.css ---",

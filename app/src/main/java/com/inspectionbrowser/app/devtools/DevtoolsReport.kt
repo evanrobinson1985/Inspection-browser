@@ -153,10 +153,12 @@ object DevtoolsReport {
         append(page?.dom ?: "(not available)").append('\n')
 
         section("NETWORK")
-        sub("Every request the page made (${native.requests.size})")
+        sub("Every request the page made (${native.requests.size}; time from the first request)")
         if (native.requests.isEmpty()) append("(none recorded; reload the page to record them)\n")
+        val start = native.requests.minOfOrNull { it.time } ?: 0L
         native.requests.forEach { r ->
             val status = when { r.error != null -> "FAILED ${r.error}"; r.status != null -> "${r.status} ${r.reason.orEmpty()}".trim(); else -> "ok" }
+            append("+").append(r.time - start).append(" ms  ")
             append(r.method).append(' ').append(r.url).append("  [").append(r.type.label).append("] ").append(status).append('\n')
         }
         sub("Fetch / XHR details (${page?.network?.size ?: 0})")

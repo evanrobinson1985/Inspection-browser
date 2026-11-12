@@ -372,7 +372,7 @@ class BrowserController(
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 this@Tab.url = url
-                this@Tab.favicon = favicon
+                this@Tab.favicon = iconFor(url)
                 loading = true
                 errorCount = 0
                 certificate = null
@@ -389,6 +389,7 @@ class BrowserController(
                 syncNavigation(view)
                 injectLate(view)
                 if (!incognito) library.addHistory(this@Tab.url, view.title.orEmpty())
+                loadIcon(this@Tab, view)
                 saveTabs()
             }
 
@@ -435,7 +436,9 @@ class BrowserController(
         private inner class Chrome : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
             override fun onReceivedTitle(view: WebView, title: String?) { this@Tab.title = title.orEmpty() }
-            override fun onReceivedIcon(view: WebView, icon: Bitmap?) { favicon = icon }
+            // No onReceivedIcon: overriding it makes WebView download the site's icon again every
+            // time the page reports an icon change (dozens of /favicon.ico requests on busy pages,
+            // which look like the page's own traffic). loadIcon fetches each site's icon once instead.
 
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) main.post { errorCount++ }
@@ -656,6 +659,38 @@ class BrowserController(
             val profile = ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE)
             profile.cookieManager.removeAllCookies(null)
             profile.webStorage.deleteAllData()
+        }
+    }
+
+    // --- Site icons: fetched once per site per session by the app, not by WebView ---
+
+    /** Origin → icon (null when the site has none or it couldn't be read). Main thread only. */
+    private val icons = HashMap<String, Bitmap?>()
+
+    private fun originOf(url: String): String? {
+        val u = Uri.parse(url)
+        if (u.scheme != "http" && u.scheme != "https") return null
+        return "${u.scheme}://${u.authority}"
+    }
+
+    private fun iconFor(url: String): Bitmap? = originOf(url)?.let { icons[it] }
+
+    private fun loadIcon(tab: Tab, view: WebView) {
+        val origin = originOf(tab.url) ?: return
+        if (icons.containsKey(origin)) { tab.favicon = icons[origin]; return }
+        icons[origin] = null
+        val ua = view.settings.userAgentString
+        view.evaluateJavascript(ICON_LINK) { json ->
+            val href = runCatching { Json.decodeFromString(String.serializer(), json) }.getOrNull() ?: "$origin/favicon.ico"
+            activity.lifecycleScope.launch {
+                val bitmap = withContext(Dispatchers.IO) {
+                    runCatching {
+                        Fetcher.bytes(href, ua)?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+                    }.getOrNull()
+                }
+                icons[origin] = bitmap
+                if (bitmap != null) tabs.filter { originOf(it.url) == origin }.forEach { it.favicon = bitmap }
+            }
         }
     }
 
@@ -1007,6 +1042,10 @@ class BrowserController(
     fun destroy() = tabs.forEach { it.destroy() }
 
     private companion object {
+        /** The page's own icon link (bitmap formats first), or null for the default /favicon.ico. */
+        const val ICON_LINK = "(function(){var l=[].slice.call(document.querySelectorAll('link[rel~=\"icon\"],link[rel~=\"apple-touch-icon\"]'))" +
+            ".map(function(e){return e.href;}).filter(function(h){return h&&!/\\.svg(\\?|#|$)/i.test(h);});return l[0]||null;})()"
+
         /** Script and stylesheet files fetched for the report, at most. */
         const val MAX_SOURCE_FILES = 80
     }

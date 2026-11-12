@@ -44,6 +44,17 @@ object Fetcher {
             .any { c.contains(it) }
     }
 
+    /** A small file (a site icon), without cookies; null when it's missing or bigger than [max]. */
+    fun bytes(url: String, userAgent: String, max: Long = 512 * 1024): ByteArray? {
+        local?.invoke(url)?.let { return it.second }
+        val request = Request.Builder().url(url).header("User-Agent", userAgent).header("Accept", "image/*,*/*;q=0.8").build()
+        return http.newCall(request).execute().use { r ->
+            val body = r.body ?: return null
+            if (!r.isSuccessful || body.contentLength() > max) return null
+            body.source().let { s -> s.request(max + 1); if (s.buffer.size > max) null else s.readByteArray() }
+        }
+    }
+
     suspend fun fetch(
         url: String,
         userAgent: String,
