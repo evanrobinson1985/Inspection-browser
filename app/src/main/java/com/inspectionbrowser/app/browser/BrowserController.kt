@@ -200,6 +200,8 @@ class BrowserController(
 
         private var scriptHandler: ScriptHandler? = null
         private var guardHandler: ScriptHandler? = null
+        private var desktopHandler: ScriptHandler? = null
+        private var desktopInstalled = false
         private var applied: List<Any?> = emptyList()
         private var installedScript: String? = null
 
@@ -237,12 +239,22 @@ class BrowserController(
                     scriptHandler = WebViewCompat.addDocumentStartJavaScript(wv, script, setOf("*"))
                 }
             }
+            val desktop = isDesktop(s)
+            if (desktop != desktopInstalled) {
+                desktopHandler?.remove()
+                desktopHandler = null
+                desktopInstalled = desktop
+                if (desktop && documentStartSupported) {
+                    desktopHandler = WebViewCompat.addDocumentStartJavaScript(wv, DesktopMode.SCRIPT, setOf("*"))
+                }
+            }
             if (reloadIfNeeded && needsReload && url.isNotEmpty()) wv.reload()
         }
 
         /** For WebViews too old for document-start scripts: load DevTools as soon as the page commits. */
         private fun injectLate(v: WebView) {
             if (documentStartSupported) return
+            if (desktopInstalled) v.evaluateJavascript(DesktopMode.SCRIPT, null)
             devtoolsScript?.let { v.evaluateJavascript(it, null) }
             if (messagesSupported) v.evaluateJavascript(PULL_GUARD, null)
         }
@@ -266,6 +278,7 @@ class BrowserController(
         internal fun destroy() {
             scriptHandler?.remove()
             guardHandler?.remove()
+            desktopHandler?.remove()
             view?.let { (it.parent as? ViewGroup)?.removeView(it); it.destroy() }
             view = null
         }
@@ -419,6 +432,8 @@ class BrowserController(
                 val last = url
                 scriptHandler = null
                 guardHandler = null
+                desktopHandler = null
+                desktopInstalled = false
                 installedScript = null
                 applied = emptyList()
                 (view.parent as? ViewGroup)?.removeView(view)
@@ -567,6 +582,9 @@ class BrowserController(
             ).collect { applySettings(reloadIfNeeded = true) }
         }
     }
+
+    /** Desktop site, from the menu switch or a desktop user agent picked in Settings. */
+    private fun isDesktop(s: Settings) = s.desktopMode.value || UserAgents.preset(s.userAgent.value).desktop
 
     private fun userAgentFor(s: Settings): String {
         val id = if (s.desktopMode.value) (s.userAgent.value.takeIf { UserAgents.preset(it).desktop } ?: UserAgents.DESKTOP) else s.userAgent.value

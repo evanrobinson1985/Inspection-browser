@@ -48,7 +48,7 @@ loaded *before the page's own scripts*, so nothing from the first line on is mis
 **Testing options** (Settings):
 
 - User agent: Chrome on Android, raw WebView, desktop Chrome (Linux / Windows), Safari on Mac / iPhone / iPad, Firefox, or your own
-- Desktop site switch (⋮ menu), disable cache, JavaScript on/off, third-party cookies, text size, darken pages in dark mode
+- Desktop site switch (⋮ menu): like Chrome's, a desktop user agent *and* a 1024 px desktop layout zoomed to fit (pages that size themselves to the phone's width still get their desktop layout), and `navigator.userAgentData` says it's not mobile, disable cache, JavaScript on/off, third-party cookies, text size, darken pages in dark mode
 - Clear cache, cookies, site storage and history
 - Certificate errors (self-signed dev servers, intercepting proxies) can be accepted page by page; user-installed CAs are trusted
 - Plain `http://` works, and `localhost`, LAN IPs and `.local` names typed in the address bar open over http
