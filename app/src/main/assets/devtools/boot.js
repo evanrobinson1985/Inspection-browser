@@ -101,32 +101,55 @@
       return { info: 'Info', warning: 'Warning', error: 'Error' }[level[0]] || '';
     }
 
+    // Objects are summarised the way Chrome's console previews them, so one log of a big object
+    // (a map library's whole state, say) can't turn into megabytes on a single line.
+    var MAX_DEPTH = 2, MAX_NESTED_STRING = 300, MAX_MESSAGE = 20000;
+    // Fewer properties the deeper they are: 30 at the top, then 12, then 6.
+    function maxItems(depth) { return depth === 0 ? 30 : depth === 1 ? 12 : 6; }
+
+    function shortTag(el) {
+      if (el.nodeType !== 1) return el.nodeName.toLowerCase();
+      var id = el.id ? '#' + el.id : '';
+      var cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.') : '';
+      return '<' + el.tagName.toLowerCase() + id + cls + '>';
+    }
+
     function fmt(v, depth, seen) {
       var t = typeof v;
       if (v === null) return 'null';
-      if (t === 'string') return depth ? JSON.stringify(v) : v;
+      if (t === 'string') {
+        if (!depth) return v;
+        return JSON.stringify(v.length > MAX_NESTED_STRING ? v.slice(0, MAX_NESTED_STRING) + '…' : v);
+      }
       if (t === 'undefined') return 'undefined';
       if (t === 'function') return 'ƒ ' + (v.name || 'anonymous') + '()';
       if (t !== 'object') return String(v);
       if (v instanceof Error) {
         var head = (v.name || 'Error') + ': ' + v.message;
+        if (depth) return head;
         return v.stack ? (v.stack.indexOf(v.message) >= 0 ? v.stack : head + '\n' + v.stack) : head;
       }
       if (typeof Node !== 'undefined' && v instanceof Node) {
+        // A logged element shows its HTML; one inside an object just its tag, id and classes.
+        if (depth) return shortTag(v);
         var html = v.outerHTML || v.nodeName;
         return html.length > 500 ? html.slice(0, 500) + '…' : html;
       }
       if (seen.indexOf(v) >= 0) return '[Circular]';
-      if (depth > 4) return Array.isArray(v) ? '[…]' : '{…}';
+      var isArray = Array.isArray(v);
+      if (depth > MAX_DEPTH) return isArray ? '[…]' : '{…}';
       seen = seen.concat([v]);
       try {
-        if (Array.isArray(v)) {
-          return '[' + v.slice(0, 100).map(function (x) { return fmt(x, depth + 1, seen); }).join(', ') + (v.length > 100 ? ', …' : '') + ']';
+        if (isArray) {
+          var n = maxItems(depth);
+          return '[' + v.slice(0, n).map(function (x) { return fmt(x, depth + 1, seen); }).join(', ') +
+            (v.length > n ? ', … ' + (v.length - n) + ' more' : '') + ']';
         }
         var keys = Object.keys(v);
         var name = v.constructor && v.constructor.name && v.constructor.name !== 'Object' ? v.constructor.name + ' ' : '';
-        return name + '{' + keys.slice(0, 100).map(function (k) { return k + ': ' + fmt(v[k], depth + 1, seen); }).join(', ') +
-          (keys.length > 100 ? ', …' : '') + '}';
+        var max = maxItems(depth);
+        return name + '{' + keys.slice(0, max).map(function (k) { return k + ': ' + fmt(v[k], depth + 1, seen); }).join(', ') +
+          (keys.length > max ? ', … ' + (keys.length - max) + ' more' : '') + '}';
       } catch (e) { return String(v); }
     }
 
@@ -150,7 +173,8 @@
         out.push(fmt(args.shift(), 0, []));
       }
       args.forEach(function (a) { out.push(fmt(a, 0, [])); });
-      return out.join(' ');
+      var text = out.join(' ');
+      return text.length > MAX_MESSAGE ? text.slice(0, MAX_MESSAGE) + ' … (message cut at ' + MAX_MESSAGE + ' characters)' : text;
     }
 
     var labels = { input: '> ', output: '< ', warn: '[warn] ', error: '[error] ', info: '[info] ', debug: '[debug] ' };
