@@ -71,7 +71,16 @@
       // Called by the plugin bundle once the app has loaded it into the page.
       addPlugins: addPluginsWhenReady,
       consoleText: function () { return consoleText(false); },
-      consoleCount: function () { return consoleLogs(false).length; }
+      consoleCount: function () { return consoleLogs(false).length; },
+      // What the Console shows now (its All / Info / Warning / Error level and search), for the app's copy.
+      consoleShownText: function () { return consoleText(true); },
+      consoleShownLabel: function () {
+        var n = consoleLogs(true).length, level = levelName();
+        return n + (level ? ' ' + level.toLowerCase() : '') + (n === 1 ? ' message' : ' messages');
+      },
+      notify: function (text, ok) {
+        if (eruda._devTools && eruda._devTools.notify) eruda._devTools.notify(text, { icon: ok === false ? 'error' : 'success' });
+      }
     };
     addCopyAllButton();
 
@@ -176,7 +185,13 @@
     }
 
     // Copies every message the Console shows now: with "All" selected that's everything.
+    // The app copies through Android's clipboard (reliable, any size it can hold, says when it's
+    // too big); the page's own clipboard access in WebView can silently copy nothing or only part.
+    // The message only asks the app to copy what the Console shows; the page can't send text with it.
     function copyShown() {
+      if (window.__ibNative && __ibNative.postMessage) {
+        try { __ibNative.postMessage('copy-console-shown'); return; } catch (e) {}
+      }
       var n = consoleLogs(true).length;
       var level = levelName();
       copyText(consoleText(true), function (ok) {

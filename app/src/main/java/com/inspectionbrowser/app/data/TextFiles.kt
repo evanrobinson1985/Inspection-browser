@@ -31,20 +31,24 @@ object TextFiles {
         return "$kind-$host-$stamp.txt"
     }
 
+    enum class Copied { All, FirstPart, Nothing }
+
     /**
      * Copies [text]; if it's too big for the clipboard, copies its first part and says to save
-     * it as a .txt file instead.
+     * it as a .txt file instead. With [showToast] false the caller tells the user itself.
      */
-    fun copy(context: Context, text: String, label: String) {
+    fun copy(context: Context, text: String, label: String, showToast: Boolean = true): Copied {
         val tooBig = text.length > CLIPBOARD_LIMIT
-        runCatching {
-            context.getSystemService(ClipboardManager::class.java)
-                ?.setPrimaryClip(ClipData.newPlainText(label, if (tooBig) text.take(CLIPBOARD_LIMIT) else text))
-        }.onSuccess {
-            toast(context, if (tooBig) "$label is too big for the clipboard: copied the first part. Use Save as .txt for all of it" else "$label copied")
-        }.onFailure {
-            toast(context, "Couldn't copy $label (too big for the clipboard); use Save as .txt")
-        }
+        val result = runCatching {
+            val clipboard = context.getSystemService(ClipboardManager::class.java) ?: error("no clipboard")
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, if (tooBig) text.take(CLIPBOARD_LIMIT) else text))
+        }.fold({ if (tooBig) Copied.FirstPart else Copied.All }, { Copied.Nothing })
+        if (showToast) toast(context, when (result) {
+            Copied.All -> "$label copied"
+            Copied.FirstPart -> "$label is too big for the clipboard: copied the first part. Use Save as .txt for all of it"
+            Copied.Nothing -> "Couldn't copy $label (too big for the clipboard); use Save as .txt"
+        })
+        return result
     }
 
     /** Saves [text] as a .txt file in Downloads (in the background) and says where it went. */

@@ -315,6 +315,11 @@ class BrowserController(
                 WebViewCompat.addWebMessageListener(this, "__ibGesture", setOf("*")) { _, message, _, isMainFrame, _ ->
                     if (isMainFrame) pullBlocked = message.data == "1"
                 }
+                // DevTools' Copy all asks the app to copy what the Console shows. The page only
+                // sends this request; the app reads the text from DevTools itself.
+                WebViewCompat.addWebMessageListener(this, "__ibNative", setOf("*")) { v, message, _, isMainFrame, _ ->
+                    if (isMainFrame && message.data == "copy-console-shown") copyConsoleShown(v)
+                }
                 if (documentStartSupported) guardHandler = WebViewCompat.addDocumentStartJavaScript(this, PULL_GUARD, setOf("*"))
             }
             setFindListener { active, count, done ->
@@ -832,6 +837,24 @@ class BrowserController(
     fun copyConsole() = consoleText { text ->
         if (text == null) { noConsole(); return@consoleText }
         TextFiles.copy(activity, text, "Console log (${messageCount(text)} messages)")
+    }
+
+    /** Copies what the Console shows (its All / Info / Warning / Error level and search) for Copy all. */
+    private fun copyConsoleShown(wv: WebView) {
+        val js = "(function(){var d=window.__ibDevtools;return d&&d.consoleShownText?JSON.stringify([d.consoleShownText(),d.consoleShownLabel()]):null;})()"
+        wv.evaluateJavascript(js) { json ->
+            val parts = runCatching {
+                Json.parseToJsonElement(Json.decodeFromString(String.serializer(), json)) as kotlinx.serialization.json.JsonArray
+            }.getOrNull() ?: return@evaluateJavascript
+            val text = (parts.getOrNull(0) as? kotlinx.serialization.json.JsonPrimitive)?.content ?: return@evaluateJavascript
+            val what = (parts.getOrNull(1) as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "messages"
+            val (note, ok) = when (TextFiles.copy(activity, text, "Console ($what)", showToast = false)) {
+                TextFiles.Copied.All -> "Copied $what" to true
+                TextFiles.Copied.FirstPart -> "Too big for the clipboard: copied the first part. Use ⋮ ▸ Save console log (.txt)" to false
+                TextFiles.Copied.Nothing -> "Couldn't copy; use ⋮ ▸ Save console log (.txt)" to false
+            }
+            wv.evaluateJavascript("window.__ibDevtools&&__ibDevtools.notify(${kotlinx.serialization.json.JsonPrimitive(note)},$ok)", null)
+        }
     }
 
     /** Saves every console message as a .txt file in Downloads. */
